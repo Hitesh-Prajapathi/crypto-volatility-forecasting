@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+.env/
+env/
+
+# Data (large files)
+data/raw/*.csv
+data/processed/*.csv
+
+# Saved models
+models/*.pkl
+models/*.h5
+models/*.keras
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Figures (regenerated)
+figures/*.png
+figures/*.jpg
