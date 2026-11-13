@@ -37,3 +37,18 @@ Thumbs.db
 # Figures (regenerated)
 figures/*.png
 figures/*.jpg
+
+# Refinement: artifacts never live in git
+models/
+data/
+artifacts/
+mlruns/
+*.pt
+*.joblib
+*.parquet
+!tests/fixtures/*.parquet
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
