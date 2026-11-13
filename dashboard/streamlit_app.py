@@ -86,17 +86,31 @@ def load_metrics() -> dict:
 
 
 def get_forecast(model_type: str, horizon: int) -> dict:
-    """Get forecast from API."""
+    """Get forecast from API (with local fallback)."""
     try:
         r = requests.get(
             f"{API_URL}/predict",
             params={"model_type": model_type, "horizon": horizon},
-            timeout=10,
+            timeout=5,
         )
         if r.status_code == 200:
             return r.json()
     except Exception:
         pass
+
+    # Local fallback from saved predictions
+    joblib_path = os.path.join(MODELS_DIR, "predictions.joblib")
+    if os.path.exists(joblib_path):
+        try:
+            import joblib
+            preds_dict = joblib.load(joblib_path)
+            if model_type in preds_dict:
+                preds = preds_dict[model_type]
+                forecast = preds[-horizon:].tolist() if len(preds) >= horizon else preds.tolist()
+                return {"model": model_type, "horizon": len(forecast), "forecast": forecast, "source": "local"}
+        except Exception:
+            pass
+
     return {}
 
 
@@ -237,38 +251,41 @@ if not df.empty:
     with tab3:
         st.subheader(f"🔮 {model_choice} Forecast")
 
-        if api_status:
-            forecast_data = get_forecast(model_choice, forecast_horizon)
-            if forecast_data and "forecast" in forecast_data:
-                forecast_vals = forecast_data["forecast"]
+        forecast_data = get_forecast(model_choice, forecast_horizon)
+        if forecast_data and "forecast" in forecast_data:
+            forecast_vals = forecast_data["forecast"]
 
-                fig4, ax4 = plt.subplots(figsize=(12, 5))
-                ax4.plot(range(len(forecast_vals)), forecast_vals,
-                         color="#e74c3c", linewidth=1.5, marker="o", markersize=3)
-                ax4.fill_between(range(len(forecast_vals)), forecast_vals,
-                                 alpha=0.2, color="#e74c3c")
-                ax4.set_title(f"{model_choice} Volatility Forecast ({forecast_horizon} days)",
-                              fontsize=14, fontweight="bold")
-                ax4.set_xlabel("Days Ahead")
-                ax4.set_ylabel("Predicted Volatility")
-                st.pyplot(fig4)
-                plt.close(fig4)
+            fig4, ax4 = plt.subplots(figsize=(12, 5))
+            ax4.plot(range(len(forecast_vals)), forecast_vals,
+                     color="#e74c3c", linewidth=1.5, marker="o", markersize=3)
+            ax4.fill_between(range(len(forecast_vals)), forecast_vals,
+                             alpha=0.2, color="#e74c3c")
+            ax4.set_title(f"{model_choice} Volatility Forecast ({forecast_horizon} days)",
+                          fontsize=14, fontweight="bold")
+            ax4.set_xlabel("Days Ahead")
+            ax4.set_ylabel("Predicted Volatility")
+            st.pyplot(fig4)
+            plt.close(fig4)
 
-                # Show stats
-                col_x, col_y, col_z = st.columns(3)
-                col_x.metric("Mean Forecast", f"{np.mean(forecast_vals):.6f}")
-                col_y.metric("Max Forecast", f"{np.max(forecast_vals):.6f}")
-                col_z.metric("Min Forecast", f"{np.min(forecast_vals):.6f}")
-            else:
+            # Show stats
+            col_x, col_y, col_z = st.columns(3)
+            col_x.metric("Mean Forecast", f"{np.mean(forecast_vals):.6f}")
+            col_y.metric("Max Forecast", f"{np.max(forecast_vals):.6f}")
+            col_z.metric("Min Forecast", f"{np.min(forecast_vals):.6f}")
+
+            if forecast_data.get("source") == "local":
+                st.caption("ℹ️ Showing cached local forecasts (API offline).")
+        else:
+            if api_status:
                 st.warning(
                     f"No predictions available for {model_choice}. "
                     "Train models first."
                 )
-        else:
-            st.info(
-                "Start the API to enable live forecasting:\n\n"
-                "```bash\nuvicorn api.main:app --reload\n```"
-            )
+            else:
+                st.info(
+                    "Start the API to enable live forecasting or run the training pipeline:\n\n"
+                    "```bash\npython scripts/run_pipeline.py\n```"
+                )
 
 else:
     st.warning(

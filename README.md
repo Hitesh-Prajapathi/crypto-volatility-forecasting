@@ -125,6 +125,34 @@ crypto-volatility-forecasting/
 
 ## 🚀 Getting Started
 
+### ⚡ One-Command Quickstart (All Components + LSTM)
+
+Launch the entire project—including **LSTM verification/training**, **FastAPI microservice**, and **Streamlit dashboard**—with a single command:
+
+```bash
+./launch.sh
+# or: python launch.py
+```
+
+Options:
+```bash
+# Force retrain all models (including PyTorch LSTM) before launch
+python launch.py --retrain
+
+# Launch without opening a browser window
+python launch.py --no-browser
+
+# Launch only the FastAPI backend
+python launch.py --api-only
+
+# Launch only the Streamlit UI
+python launch.py --dashboard-only
+```
+
+---
+
+### Step-by-Step Manual Setup
+
 ### 1. Install Dependencies
 
 ```bash

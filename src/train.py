@@ -10,6 +10,7 @@ import sys
 import warnings
 from typing import Any, Dict, List, Tuple
 
+import joblib
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
@@ -74,9 +75,11 @@ def run_training_pipeline(
     # ── Step 1: Data ──────────────────────────────────────────
     print("\n📦 Step 1: Data Collection")
     try:
-        df_raw = load_raw_data(symbol)
-    except FileNotFoundError:
+        # Always try to fetch the latest data first
         df_raw = download_btc_data(symbol, start_date)
+    except Exception as e:
+        print(f"  ⚠️ Failed to download new data ({e}). Falling back to cached data.")
+        df_raw = load_raw_data(symbol)
 
     # ── Step 2: Preprocess ────────────────────────────────────
     print("\n🔬 Step 2: Preprocessing")
@@ -210,9 +213,10 @@ def run_training_pipeline(
     if len(predictions) > 1:
         plot_model_comparison(dates_test, y_test, predictions)
 
-    # ── Save metrics ──────────────────────────────────────────
+    # ── Save metrics & predictions ────────────────────────────
     os.makedirs(MODELS_DIR, exist_ok=True)
     metrics_df.to_csv(os.path.join(MODELS_DIR, "metrics.csv"), index=False)
+    joblib.dump(predictions, os.path.join(MODELS_DIR, "predictions.joblib"))
 
     print("\n" + "=" * 70)
     print("✅ PIPELINE COMPLETE")

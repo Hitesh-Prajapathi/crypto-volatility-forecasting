@@ -43,6 +43,40 @@ app.add_middleware(
 _pipeline_results = {}
 
 
+def load_saved_results() -> bool:
+    """Load pre-computed metrics and predictions from disk into memory."""
+    global _pipeline_results
+    pred_path = os.path.join(MODELS_DIR, "predictions.joblib")
+    metrics_path = os.path.join(MODELS_DIR, "metrics.csv")
+
+    loaded = False
+    if os.path.exists(metrics_path) or os.path.exists(pred_path):
+        if not isinstance(_pipeline_results, dict):
+            _pipeline_results = {}
+        if os.path.exists(metrics_path):
+            try:
+                _pipeline_results["metrics"] = pd.read_csv(metrics_path)
+                loaded = True
+            except Exception:
+                pass
+        if os.path.exists(pred_path):
+            try:
+                import joblib
+                _pipeline_results["predictions"] = joblib.load(pred_path)
+                loaded = True
+            except Exception:
+                pass
+    return loaded
+
+
+@app.on_event("startup")
+def startup_load_models():
+    """Attempt to load saved artifacts on server startup."""
+    if load_saved_results():
+        models = list(_pipeline_results.get("predictions", {}).keys())
+        print(f"📦 Pre-loaded models and metrics into memory on startup: {models}")
+
+
 # ─── Endpoints ────────────────────────────────────────────────
 
 @app.get("/health")
@@ -108,7 +142,10 @@ def get_predictions(
     Returns:
         JSON with forecast values and metadata.
     """
-    if not _pipeline_results:
+    if not _pipeline_results or "predictions" not in _pipeline_results:
+        load_saved_results()
+
+    if not _pipeline_results or "predictions" not in _pipeline_results:
         raise HTTPException(
             status_code=400,
             detail="No trained models available. Call POST /train first.",
@@ -139,20 +176,19 @@ def get_metrics():
     Returns:
         JSON with MAE, RMSE, MAPE for all trained models.
     """
-    if not _pipeline_results:
-        raise HTTPException(
-            status_code=400,
-            detail="No metrics available. Call POST /train first.",
-        )
+    if not _pipeline_results or "metrics" not in _pipeline_results:
+        load_saved_results()
 
-    # Also try loading from disk if available
     metrics_df = _pipeline_results.get("metrics")
     if metrics_df is None:
         csv_path = os.path.join(MODELS_DIR, "metrics.csv")
         if os.path.exists(csv_path):
             metrics_df = pd.read_csv(csv_path)
         else:
-            raise HTTPException(status_code=404, detail="No metrics found.")
+            raise HTTPException(
+                status_code=400,
+                detail="No metrics available. Call POST /train first.",
+            )
 
     # Convert to {model_name: {metric: value}} format
     result = {}

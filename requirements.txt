@@ -12,6 +12,7 @@ pmdarima>=2.0
 scipy>=1.11
 
 # Deep learning
+torch>=2.0
 tensorflow>=2.14
 
 # Visualization
