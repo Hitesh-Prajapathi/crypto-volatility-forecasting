@@ -1,264 +1,89 @@
-# ₿ Crypto Volatility Forecasting
+# Crypto Volatility Forecasting
 
-A modular machine learning system for forecasting Bitcoin price volatility using **statistical**, **machine learning**, and **deep learning** models — with a **FastAPI** backend and **Streamlit** dashboard.
+Forecasting the **daily realized variance** of BTC, ETH and SOL from 5-minute Binance bars. Models are evaluated walk-forward against the HAR-RV benchmark using QLIKE loss, Diebold-Mariano tests, the Model Confidence Set and VaR backtests, and the system is shipped with MLflow, Prefect and Kubernetes. The repository is under active refinement (see the status below).
 
----
+> **Notice: earlier results were retracted.** The first version of this project reported performance numbers that were invalid because of target leakage and other methodological defects. They have been removed. See [ADR-0002](docs/adr/0002-legacy-results-retracted.md) for the audit findings and evidence. The original code is preserved at git tag `v0-legacy` and in [`legacy/`](legacy/README.md).
 
-## 💡 Origins & Inspiration
+## Architecture
 
-This repository is an evolution of a monolithic research notebook into a production-ready, modular ML pipeline. 
+```mermaid
+flowchart LR
+    A[Binance 5-min bars] --> B[Validate<br/>Pandera schemas]
+    B --> C[(Parquet + manifest<br/>content hashes)]
+    C --> D[Realized measures<br/>RV, BV, jumps]
+    D --> E[Walk-forward training<br/>and evaluation]
+    E --> F[MLflow registry<br/>@champion]
+    F --> G[Daily forecast job]
+    G --> H[(Postgres<br/>forecast store)]
+    H --> I[FastAPI]
+    I --> J[Dashboard]
 
-The original exploratory data analysis and initial model prototyping can be found in:
-👉 [`notebooks/01_original_implementation.ipynb`](notebooks/01_original_implementation.ipynb)
-
-By refactoring this monolith, the project demonstrates software engineering best practices for ML, including data pipelines, configuration management, model persistence, and API deployment.
-
----
-
-## 🏗️ Architecture
-
-```
-                ┌───────────────────┐
-                │   yfinance API    │
-                └────────┬──────────┘
-                         │
-                         ▼
-                ┌───────────────────┐
-                │  Data Pipeline    │
-                │  (data_loader.py) │
-                └────────┬──────────┘
-                         │
-                         ▼
-                ┌───────────────────┐
-                │   Preprocessing   │
-                │  + Feature Eng.   │
-                └────────┬──────────┘
-                         │
-           ┌─────────────┼─────────────┐
-           ▼             ▼             ▼
-     ┌──────────┐ ┌──────────┐ ┌──────────┐
-     │  GARCH   │ │ RF / XGB │ │   LSTM   │
-     │(stat.)   │ │  (ML)    │ │  (DL)    │
-     └────┬─────┘ └────┬─────┘ └────┬─────┘
-          └─────────────┼─────────────┘
-                        ▼
-                ┌───────────────────┐
-                │   Evaluation      │
-                │  (MAE/RMSE/MAPE)  │
-                └────────┬──────────┘
-                         │
-                         ▼
-                ┌───────────────────┐
-                │   FastAPI         │
-                │  /train /predict  │
-                │  /metrics         │
-                └────────┬──────────┘
-                         │
-                         ▼
-                ┌───────────────────┐
-                │  Streamlit UI     │
-                │  Dashboard        │
-                └───────────────────┘
+    P[Prefect flows] -.-> B
+    P -.-> E
+    P -.-> G
+    EV[Evidently drift] -.-> D
+    EV -.-> G
+    PG[Prometheus / Grafana] -.-> I
+    PG -.-> G
+    GH[GitHub Actions] -.-> F
+    AR[Argo CD] -.-> I
+    AR -.-> G
 ```
 
----
+A forecast for day t+1 uses only data up to the end of UTC day t. Details: [docs/architecture.md](docs/architecture.md).
 
-## 📁 Project Structure
+## Quickstart
 
-```
-crypto-volatility-forecasting/
-│
-├── README.md
-├── requirements.txt
-├── .gitignore
-│
-├── data/
-│   ├── raw/                  # Downloaded price CSVs
-│   └── processed/            # Feature-engineered data
-│
-├── models/                   # Saved model weights
-│   ├── rf.pkl
-│   ├── xgb.pkl
-│   ├── lstm.keras
-│   └── metrics.csv
-│
-├── figures/                  # Auto-generated plots
-│
-├── notebooks/
-│   ├── 01_original_implementation.ipynb  # Original research notebook
-│   └── exploration.ipynb                 # Cleaned EDA notebook
-│
-├── src/
-│   ├── config.py             # Centralized configuration
-│   ├── data_loader.py        # yfinance data download
-│   ├── preprocessing.py      # Log returns, rolling volatility
-│   ├── features.py           # Lag features, rolling stats
-│   ├── models.py             # GARCH, Random Forest, XGBoost
-│   ├── lstm_model.py         # LSTM architecture & training
-│   ├── train.py              # Full training pipeline
-│   ├── evaluate.py           # Metrics (MAE, RMSE, MAPE)
-│   └── visualize.py          # Publication-quality plots
-│
-├── api/
-│   └── main.py               # FastAPI backend
-│
-├── dashboard/
-│   └── streamlit_app.py      # Interactive Streamlit UI
-│
-└── scripts/
-    ├── run_pipeline.py       # CLI pipeline runner
-    └── forecast.py           # Standalone forecast script
-```
-
----
-
-## 📊 Models
-
-| Model | Type | Library | Description |
-|-------|------|---------|-------------|
-| **GARCH(1,1)** | Statistical | `arch` | Generalized Autoregressive Conditional Heteroskedasticity — captures volatility clustering |
-| **Random Forest** | Machine Learning | `scikit-learn` | Ensemble of decision trees with lagged volatility features |
-| **XGBoost** | Machine Learning | `xgboost` | Gradient-boosted trees — strong performance on tabular data |
-| **LSTM** | Deep Learning | `tensorflow` | Long Short-Term Memory network — captures temporal dependencies |
-
----
-
-## 🚀 Getting Started
-
-### ⚡ One-Command Quickstart (All Components + LSTM)
-
-Launch the entire project—including **LSTM verification/training**, **FastAPI microservice**, and **Streamlit dashboard**—with a single command:
+Requires [uv](https://docs.astral.sh/uv/) and Python 3.12.
 
 ```bash
-./launch.sh
-# or: python launch.py
+uv sync --all-extras      # or: make setup
+make test                 # fast tests (no network)
+make data                 # ingest 5-min bars (SYMBOL=BTCUSDT START=2017-08-17)
+make help                 # list all targets
 ```
 
-Options:
-```bash
-# Force retrain all models (including PyTorch LSTM) before launch
-python launch.py --retrain
-
-# Launch without opening a browser window
-python launch.py --no-browser
-
-# Launch only the FastAPI backend
-python launch.py --api-only
-
-# Launch only the Streamlit UI
-python launch.py --dashboard-only
-```
-
----
-
-### Step-by-Step Manual Setup
-
-### 1. Install Dependencies
-
-```bash
-cd crypto-volatility-forecasting
-pip install -r requirements.txt
-```
-
-### 2. Run the Full Pipeline
-
-```bash
-python scripts/run_pipeline.py
-```
-
-Options:
-```bash
-# Skip LSTM for faster execution
-python scripts/run_pipeline.py --skip-lstm
-
-# Use a different symbol or date range
-python scripts/run_pipeline.py --symbol ETH-USD --start-date 2020-01-01
-```
-
-### 3. Start the API
-
-```bash
-uvicorn api.main:app --reload
-```
-
-API endpoints:
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/health` | Health check |
-| `POST` | `/train` | Train all models |
-| `GET` | `/predict?model_type=GARCH&horizon=30` | Get forecasts |
-| `GET` | `/metrics` | Model comparison |
-
-Interactive docs: [http://localhost:8000/docs](http://localhost:8000/docs)
-
-### 4. Launch the Dashboard
-
-```bash
-streamlit run dashboard/streamlit_app.py
-```
-
-Dashboard features:
-- 📈 BTC price & volatility charts
-- 📊 Model comparison table with bar charts
-- 🔮 Interactive forecast with adjustable horizon
-- ⚙️ One-click model training
-
-### 5. Standalone Forecast
-
-```bash
-python scripts/forecast.py --model rf --horizon 30
-```
-
----
-
-## 📈 Example Results
-
-After running the pipeline, model comparison metrics are saved to `models/metrics.csv`:
+## Repository layout
 
 ```
-Model            MAE        RMSE       MAPE (%)
-──────────────────────────────────────────────────
-XGBoost          0.001234   0.001890   8.45
-Random Forest    0.001345   0.002010   9.12
-GARCH            0.002567   0.003400   15.20
-LSTM             0.001456   0.002100   10.30
+src/volforecast/   Package: data, features, models, evaluation, registry, monitoring, flows, serving
+tests/             Unit, property and integration tests (leakage guards live here)
+docs/              Architecture, execution plan, ADRs
+docs/adr/          Architecture decision records
+legacy/            Frozen v0 code, kept for transparency (not linted, not supported)
+notebooks/         Original exploratory notebook
+deploy/            Helm chart, kind config, Argo CD manifests (added in later milestones)
+docker/, compose.yaml   Container images and local stack
+.github/workflows/ CI
+Makefile           Developer entry points
 ```
 
-*Actual values depend on data and training run.*
+## Roadmap and status
 
-Generated plots are saved to `figures/`:
-- `btc_price_trend.png` — Bitcoin historical price
-- `rolling_volatility.png` — Multi-window realized volatility
-- `acf_pacf.png` — Serial correlation analysis
-- `predictions_*.png` — Model-specific forecast vs actual
-- `model_comparison.png` — All models overlaid
-- `lstm_loss_curve.png` — LSTM training progress
+The full plan is in [docs/execution_plan.md](docs/execution_plan.md).
 
----
+- [ ] **M0** Repo foundation and honest baseline (in progress)
+- [ ] **M1** Intraday data and realized measures
+- [ ] **M2** Baselines, walk-forward evaluation, statistical tests
+- [ ] **M3** ML/DL challengers, ensemble, interpretation
+- [ ] **M4** VaR / ES backtesting
+- [ ] **M5** MLOps: MLflow, Prefect, drift monitoring
+- [ ] **M6** Serving hardening and local stack
+- [ ] **M7** CI/CD, Kubernetes, Helm, GitOps
+- [ ] **M8** Observability, load testing, SRE docs
+- [ ] **M9** Presentation and live dashboard
 
-## 🔧 Configuration
+## Results
 
-All hyperparameters are centralized in `src/config.py`:
+<!-- RESULTS:START -->
+Results are generated by `make report`; none yet.
+<!-- RESULTS:END -->
 
-```python
-SYMBOL = "BTC-USD"
-START_DATE = "2018-01-01"
-ROLLING_WINDOWS = [7, 30]
-LAG_PERIODS = [1, 5, 10]
-TEST_RATIO = 0.2
+## Limitations
 
-RF_N_ESTIMATORS = 200
-XGB_LEARNING_RATE = 0.05
-LSTM_EPOCHS = 50
-LSTM_SEQUENCE_LENGTH = 30
-```
+- Volatility forecasts are statistical estimates and can be wrong, especially during regime changes and market stress.
+- Data comes from a single venue (Binance); other venues may differ.
+- Results, once available, describe past out-of-sample behaviour and do not guarantee future performance.
+- The legacy code in `legacy/` is known to be flawed and must not be used for conclusions.
 
----
-
-## 📝 License
-
-This project is for educational and portfolio purposes.
-
----
-
-*Built as a portfolio project demonstrating end-to-end ML system design.*
+**This project is for research and education only. It is not investment advice.**
