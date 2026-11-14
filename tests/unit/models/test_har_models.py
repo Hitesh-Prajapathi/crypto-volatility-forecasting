@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 from tests.unit.models.helpers import panel_from_rv, simulate_har_rv
-from volforecast.contracts import COL_COMPLETE, COL_RV, target_column
+from volforecast.contracts import COL_COMPLETE, COL_RS_NEG, COL_RS_POS, COL_RV, target_column
 from volforecast.features.har import har_aggregates, make_targets
 from volforecast.logging import get_logger
 from volforecast.models.har import HAR, HARQ, LogHAR
@@ -154,3 +154,87 @@ def test_har_timing_2500_rows() -> None:
     log.info("har fit+predict timing (2500 rows)", best_ms=best * 1e3, median_ms=median * 1e3)
     print(f"HAR fit+predict 2500 rows: best {best * 1e3:.2f} ms, median {median * 1e3:.2f} ms")
     assert median < 0.2
+
+
+def _collapse_panel(n: int = 900, seed: int = 4) -> pd.DataFrame:
+    """Panel where next-day RV loads positively on rs_neg and strongly NEGATIVELY on rs_pos."""
+    rng = np.random.default_rng(seed)
+    base = 4e-4
+    rs_pos = np.full(n, base / 2)
+    rs_neg = np.full(n, base / 2)
+    rv = np.full(n, base)
+    for t in range(n - 1):
+        rs_pos[t] = base / 2 * rng.lognormal(0.0, 0.5)
+        rs_neg[t] = base / 2 * rng.lognormal(0.0, 0.5)
+        rv[t] = rs_pos[t] + rs_neg[t]
+    # tomorrow's RV: strong positive loading on rs_neg, negative on rs_pos (so the fitted
+    # level SHAR can be driven to ~0 or below by an extreme rs_pos day)
+    nxt = np.empty(n)
+    nxt[0] = base
+    nxt[1:] = np.clip(
+        2e-4 + 1.6 * rs_neg[:-1] - 0.9 * rs_pos[:-1] + 3e-5 * rng.standard_normal(n - 1),
+        0.02 * base,
+        None,
+    )
+    p = panel_from_rv(rv, seed=seed)
+    p[COL_RS_POS] = rs_pos
+    p[COL_RS_NEG] = rs_neg
+    p[COL_RV] = nxt
+    # keep rv consistent with the semivariances it is built from only through the target;
+    # the regressors seen by SHAR are rs_pos / rs_neg (daily) and trailing mean rv
+    return p
+
+
+def test_level_shar_collapse_is_caught_by_trailing_floor() -> None:
+    from volforecast.models.har import SHAR
+
+    p = _collapse_panel()
+    train = p.iloc[:700]
+    # origin: huge positive semivariance, tiny negative semivariance, normal trailing RV
+    origin = p.iloc[:760].copy()
+    legacy = SHAR(floor_frac=0.0).fit(train, 1)
+    coef = legacy.get_params()["coef"]
+    assert coef["rs_pos_d"] < 0 < coef["rs_neg_d"]
+    recent = float(origin[COL_RV].iloc[-22:].mean())
+    origin.iloc[-1, origin.columns.get_loc(COL_RS_NEG)] = 1e-6
+    origin.iloc[-1, origin.columns.get_loc(COL_RS_POS)] = 0.0
+    lp0 = legacy._linear_predictor(origin)
+    assert lp0 is not None
+    # choose the positive semivariance that puts the linear predictor at 5% of the run-rate
+    origin.iloc[-1, origin.columns.get_loc(COL_RS_POS)] = (lp0 - 0.05 * recent) / -coef["rs_pos_d"]
+
+    # original filter (training min only): the collapsed forecast sails through
+    lp = legacy._linear_predictor(origin)
+    assert lp is not None
+    y_lo = legacy.get_params()["train_target_min"]
+    assert y_lo <= lp < 0.2 * recent  # collapse: legit w.r.t. the old bounds, far below run-rate
+    assert legacy.predict_variance(origin, 1) == pytest.approx(lp)
+    assert legacy.get_params()["n_insanity_filtered"] == 0
+
+    # with the floor, the forecast is replaced by the fallback and the replacement is counted
+    robust = SHAR().fit(train, 1)
+    assert robust.floor_frac == 0.2
+    f = robust.predict_variance(origin, 1)
+    assert f == pytest.approx(robust.get_params()["train_target_mean"])
+    assert f >= 0.2 * recent
+    prm = robust.get_params()
+    assert prm["n_insanity_filtered"] == 1
+    assert prm["n_insanity_below_floor"] == 1
+    assert prm["n_insanity_above_max"] == 0
+
+    # horizon scaling of the floor, and normal origins are untouched
+    normal = p.iloc[:760]
+    assert robust.predict_variance(normal, 1) > 0
+    assert robust.get_params()["n_insanity_filtered"] == 1
+
+
+def test_floor_scales_with_horizon_and_validates() -> None:
+    from volforecast.models.har import SHAR
+
+    p = _collapse_panel()
+    m5 = SHAR(floor_frac=0.2).fit(p.iloc[:700], 5)
+    recent = float(p[COL_RV].iloc[:760].iloc[-22:].mean())
+    assert m5._floor(p.iloc[:760], 5) >= 0.2 * 5 * recent - 1e-15
+    with pytest.raises(ValueError, match="floor_frac"):
+        HAR(floor_frac=-0.1)
+    assert HAR(floor_frac=0.3).get_params()["floor_frac"] == 0.3

@@ -11,11 +11,11 @@ import hashlib
 import json
 from pathlib import Path
 
-import duckdb
 import numpy as np
 import pandas as pd
 
-from volforecast.contracts import KLINE_COLUMNS, PANEL_COLUMNS
+from volforecast.contracts import PANEL_COLUMNS
+from volforecast.data.store import read_klines
 from volforecast.features.realized import daily_realized_measures
 from volforecast.logging import get_logger
 
@@ -33,30 +33,11 @@ def kline_files(data_root: Path, symbol: str) -> list[Path]:
 
 
 def load_klines(data_root: str | Path, symbol: str) -> pd.DataFrame:
-    """Read all 5-minute klines of ``symbol`` (contract schema, sorted, UTC ``open_time``).
-
-    TODO: switch to ``volforecast.data.read_klines`` once the data module is merged.
-    """
+    """Read all 5-minute klines of ``symbol`` (contract schema, sorted, UTC ``open_time``)."""
     root = Path(data_root)
     if not kline_files(root, symbol):
         raise FileNotFoundError(f"no kline parquet files for {symbol} under {root / 'raw'}")
-    cols = ", ".join(c for c in KLINE_COLUMNS if c != "open_time")
-    # epoch_ns avoids duckdb's pytz-dependent TIMESTAMPTZ -> pandas conversion.
-    query = (
-        f"SELECT epoch_ns(open_time) AS open_ns, {cols} "
-        "FROM read_parquet(?, hive_partitioning=true) ORDER BY open_ns"
-    )
-    glob = str(_interval_dir(root, symbol) / "**" / "*.parquet")
-    con = duckdb.connect()
-    try:
-        df = con.execute(query, [glob]).fetchdf()
-    finally:
-        con.close()
-    open_time = pd.to_datetime(df.pop("open_ns"), unit="ns", utc=True).astype("datetime64[ns, UTC]")
-    df.insert(0, "open_time", open_time)
-    df = df.drop_duplicates("open_time", keep="last").reset_index(drop=True)
-    df["n_trades"] = df["n_trades"].astype("int64")
-    return df[list(KLINE_COLUMNS)]
+    return read_klines(root, symbol, interval=INTERVAL)
 
 
 def content_hash(panel: pd.DataFrame) -> str:
