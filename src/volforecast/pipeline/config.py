@@ -30,7 +30,7 @@ class ModelConfig(BaseModel):
         return v
 
 
-DistName = Literal["normal", "t", "fhs"]
+DistName = Literal["normal", "t", "fhs", "normal_cal", "t_cal"]
 DEFAULT_DISTS: tuple[DistName, ...] = ("normal", "t", "fhs")
 
 

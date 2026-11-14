@@ -25,6 +25,10 @@ EXPECTED = {
     "har_cj",
     "shar",
     "harq",
+    "lgbm",
+    "xgb",
+    "ens_eq",
+    "ens_inv",
 }
 
 
