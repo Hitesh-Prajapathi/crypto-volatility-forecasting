@@ -17,7 +17,9 @@ def _frame(times: list[str]) -> pd.DataFrame:
     n = len(times)
     return pd.DataFrame(
         {
-            "open_time": pd.to_datetime(times, utc=True, format="ISO8601").astype("datetime64[ns, UTC]"),
+            "open_time": pd.to_datetime(times, utc=True, format="ISO8601").astype(
+                "datetime64[ns, UTC]"
+            ),
             "open": [float(i + 1) for i in range(n)],
             "high": [float(i + 2) for i in range(n)],
             "low": [float(i) + 0.5 for i in range(n)],

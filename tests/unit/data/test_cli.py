@@ -55,6 +55,8 @@ def test_ingest_empty_result_exits(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, synthetic_klines: pd.DataFrame
 ) -> None:
     monkeypatch.setenv("VOLF_DATA_DIR", str(tmp_path))
-    monkeypatch.setattr(cli, "BinanceVisionSource", lambda cache_dir: FakeSource(synthetic_klines.iloc[:0]))
+    monkeypatch.setattr(
+        cli, "BinanceVisionSource", lambda cache_dir: FakeSource(synthetic_klines.iloc[:0])
+    )
     with pytest.raises(SystemExit):
         cli.run_ingest("BTCUSDT", date(2024, 1, 1), date(2024, 1, 2))

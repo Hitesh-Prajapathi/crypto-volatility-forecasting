@@ -72,7 +72,9 @@ KLINES_SCHEMA = pa.DataFrameSchema(
     {
         "open_time": pa.Column(
             checks=[
-                pa.Check(_utc_datetime, name="open_time_utc", error="open_time is not tz-aware UTC"),
+                pa.Check(
+                    _utc_datetime, name="open_time_utc", error="open_time is not tz-aware UTC"
+                ),
                 pa.Check(_unique, name="open_time_unique", error="open_time is not unique"),
                 pa.Check(
                     _monotonic, name="open_time_sorted", error="open_time is not sorted ascending"
@@ -202,9 +204,7 @@ PANEL_SCHEMA = pa.DataFrameSchema(
         pa.Check(
             _index_ok, name="index_naive_unique", error="index must be tz-naive with unique labels"
         ),
-        pa.Check(
-            _index_normalized, name="index_normalized", error="index labels must be midnight"
-        ),
+        pa.Check(_index_normalized, name="index_normalized", error="index labels must be midnight"),
         pa.Check(_index_sorted, name="index_sorted", error="index must be sorted ascending"),
         pa.Check(
             _consecutive_days,

@@ -92,9 +92,7 @@ def read_klines(
         where.append("open_time::TIMESTAMPTZ < (?::TIMESTAMPTZ + INTERVAL 1 DAY)")
         params.append(f"{end.isoformat()} 00:00:00+00")
     clause = f"WHERE {' AND '.join(where)}" if where else ""
-    sql = (
-        f"SELECT {cols} FROM read_parquet(?, hive_partitioning=true) {clause} ORDER BY open_time"
-    )
+    sql = f"SELECT {cols} FROM read_parquet(?, hive_partitioning=true) {clause} ORDER BY open_time"
     con = duckdb.connect()
     try:
         con.execute("SET TimeZone='UTC'")
