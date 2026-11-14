@@ -13,7 +13,7 @@ from tests.unit.models.helpers import panel_from_rv, simulate_har_rv
 from volforecast.contracts import COL_COMPLETE, COL_RS_NEG, COL_RS_POS, COL_RV, target_column
 from volforecast.features.har import har_aggregates, make_targets
 from volforecast.logging import get_logger
-from volforecast.models.har import HAR, HARQ, LogHAR
+from volforecast.models.har import HAR, HARQ, HARDow, LogHAR, LogHARDow, weekend_days_ahead
 
 log = get_logger(__name__)
 
@@ -238,3 +238,125 @@ def test_floor_scales_with_horizon_and_validates() -> None:
     with pytest.raises(ValueError, match="floor_frac"):
         HAR(floor_frac=-0.1)
     assert HAR(floor_frac=0.3).get_params()["floor_frac"] == 0.3
+
+
+# ---------------------------------------------------------------- calendar-aware HAR (DoW)
+def _weekend_panel(n: int = 12_000, factor: float = 0.5, seed: int = 21) -> pd.DataFrame:
+    """HAR-type RV whose weekend days are scaled by `factor` (a multiplicative weekend effect)."""
+    rv = simulate_har_rv(n, b0=1e-4, bd=0.3, bw=0.2, bm=0.1, noise_sd=0.3, seed=seed)
+    p = panel_from_rv(rv)
+    weekend = np.asarray(p.index.day_of_week) >= 5
+    rv = np.where(weekend, rv * factor, rv)
+    return panel_from_rv(rv)
+
+
+def test_weekend_days_ahead_counts() -> None:
+    idx = pd.date_range("2024-01-01", periods=14, freq="D")  # 2024-01-01 is a Monday
+    w1 = weekend_days_ahead(idx, 1)
+    # origin Friday -> target Saturday, origin Saturday -> target Sunday, Sunday -> Monday
+    assert [idx[i].day_name()[:3] for i in np.flatnonzero(w1)] == ["Fri", "Sat", "Fri", "Sat"]
+    assert set(np.unique(w1)) == {0.0, 1.0}
+    w5 = weekend_days_ahead(idx, 5)
+    expected = [
+        sum(int((d + pd.Timedelta(days=k)).day_of_week >= 5) for k in range(1, 6)) for d in idx
+    ]
+    np.testing.assert_array_equal(w5, expected)
+    assert set(np.unique(w5)) == {0.0, 1.0, 2.0}  # Mon-Fri window holds none, others 1 or 2
+
+
+@pytest.mark.parametrize("h", [1, 5])
+@pytest.mark.parametrize("cls", [HARDow, LogHARDow])
+def test_dow_regressor_count_and_values(cls: type[HARDow | LogHARDow], h: int) -> None:
+    p = panel_from_rv(simulate_har_rv(3000, seed=3))
+    m = cls().fit(p, h)
+    prm = m.get_params()
+    base = HAR if cls is HARDow else LogHAR
+    assert len(prm["feature_names"]) == len(base.feature_names) + 1 == 4
+    assert prm["feature_names"][-1] == "wknd"
+    assert len(prm["coef"]) == 5  # const + 3 HAR lags + wknd
+    design = m._raw_design(p)
+    assert design.shape == (len(p), 4)
+    np.testing.assert_array_equal(design[:, -1], weekend_days_ahead(p.index, h))
+    # per-origin definition: weekend days among t+1..t+h
+    for i in (100, 101, 102, 103, 104, 105, 106):
+        days = pd.date_range(p.index[i] + pd.Timedelta(days=1), periods=h)
+        assert design[i, -1] == float((days.day_of_week >= 5).sum())
+    assert design[:, -1].min() == 0.0
+    assert design[:, -1].max() == (1.0 if h == 1 else 2.0)
+
+
+def test_har_dow_recovers_weekend_effect() -> None:
+    p = _weekend_panel()
+    # log model: wknd loading ~ ln(0.5) for h=1 (multiplicative weekend scaling)
+    c_log = LogHARDow().fit(p, 1).get_params()["coef"]
+    assert c_log["wknd"] == pytest.approx(math.log(0.5), abs=0.06)
+    # level model: weekend target RV is lower, so wknd loading is clearly negative
+    c_lvl = HARDow().fit(p, 1).get_params()["coef"]
+    assert c_lvl["wknd"] < 0
+    # horizon 5: each extra weekend day in the window lowers the 5-day sum by ~ 0.5 * daily mean
+    c5 = LogHARDow().fit(p, 5).get_params()["coef"]
+    assert -0.45 < c5["wknd"] < -0.05
+    # plain log-HAR has no way to represent it: higher in-sample residual variance
+    s_dow = LogHARDow().fit(p, 1).get_params()["sigma2"]
+    s_plain = LogHAR().fit(p, 1).get_params()["sigma2"]
+    assert s_dow < 0.85 * s_plain
+
+
+def test_log_har_dow_matches_log_har_without_weekend_effect() -> None:
+    """Without a weekend effect the extra regressor is ~0 and bias correction is the same."""
+    p = panel_from_rv(simulate_har_rv(8000, seed=8))
+    m = LogHARDow().fit(p, 1)
+    prm = m.get_params()
+    assert prm["coef"]["wknd"] == pytest.approx(0.0, abs=0.05)
+    c = prm["coef"]
+    agg = har_aggregates(p, log=True).iloc[-1]
+    lp = (
+        c["const"]
+        + c["log_rv_d"] * agg["log_rv_d"]
+        + c["log_rv_w"] * agg["log_rv_w"]
+        + c["log_rv_m"] * agg["log_rv_m"]
+        + c["wknd"] * weekend_days_ahead(p.index[-1:], 1)[0]
+    )
+    assert m.predict_variance(p, 1) == pytest.approx(math.exp(lp + prm["sigma2"] / 2), rel=1e-10)
+
+
+@pytest.mark.parametrize("h", [1, 5])
+@pytest.mark.parametrize("cls", [HARDow, LogHARDow])
+def test_dow_no_lookahead(
+    cls: type[HARDow | LogHARDow], h: int, synthetic_panel: pd.DataFrame
+) -> None:
+    t0, t = synthetic_panel.index[700], synthetic_panel.index[760]
+    clean_fit = cls().fit(synthetic_panel.loc[:t0], h)
+    mutated = synthetic_panel.copy()
+    future = mutated.index > t0
+    mutated.loc[future, COL_RV] = 123.0
+    mutated.loc[future, COL_COMPLETE] = False
+    dirty_fit = cls().fit(mutated.loc[:t0], h)
+    assert clean_fit.get_params() == dirty_fit.get_params()
+    mutated_t = synthetic_panel.copy()
+    mutated_t.loc[mutated_t.index > t, COL_RV] = 123.0
+    a = clean_fit.predict_variance(synthetic_panel.loc[:t], h)
+    b = clean_fit.predict_variance(mutated_t.loc[:t], h)
+    assert a == b
+
+
+def test_dow_forecast_depends_on_origin_weekday() -> None:
+    """Identical history values, different calendar position -> different forecasts."""
+    p = _weekend_panel(6000)
+    m = LogHARDow().fit(p.iloc[:5000], 1)
+    # find a Friday (target Saturday) and a Wednesday origin; flatten recent RV so lags agree
+    q = p.iloc[:5100].copy()
+    q[COL_RV] = q[COL_RV].mean()
+    fri = q.loc[q.index.day_of_week == 4].index[-1]
+    wed = q.loc[q.index.day_of_week == 2].index[-1]
+    assert m.predict_variance(q.loc[:fri], 1) < m.predict_variance(q.loc[:wed], 1)
+
+
+def test_dow_stale_regressor_row_uses_current_origin_calendar() -> None:
+    p = _weekend_panel(3000)
+    m = LogHARDow().fit(p.iloc[:2900], 1)
+    q = p.iloc[:2950].copy()
+    q.iloc[-1, q.columns.get_loc(COL_RV)] = np.nan  # lagged regressors missing at the origin
+    row = m._current_regressors(q)
+    assert row is not None
+    assert row[-1] == weekend_days_ahead(q.index[-1:], 1)[0]
