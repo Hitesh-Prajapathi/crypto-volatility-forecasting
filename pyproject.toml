@@ -34,6 +34,15 @@ serve = [
     "psycopg[binary]>=3.1",
 ]
 
+mlops = [
+    "mlflow>=2.16,<4",
+    "prefect>=3.0,<4",
+    "boto3>=1.34",
+]
+dl = [
+    "torch>=2.4",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",
