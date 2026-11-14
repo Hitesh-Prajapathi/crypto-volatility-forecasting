@@ -374,7 +374,11 @@ def render_markdown(results: dict[str, Any], detail: bool = True) -> str:
         parts.append(
             "Zero-mean; t and FHS use standardized residuals from strictly earlier origins "
             f"(expanding), falling back to normal until {results['var_min_resid']} are "
-            "available. Basel zone is for the last 250 observations (1% level only)."
+            "available. Basel zone is for the last 250 observations (1% level only). The "
+            "forecast is of 5-minute realized variance, so standardized residuals need not have "
+            "unit variance: FHS rescales for that, normal and unit-variance t do not, and "
+            "over- or under-coverage of those (e.g. level-HAR on SOL) reflects this scale "
+            "mismatch rather than a bug."
         )
         parts += ["", results["var_markdown"]]
     return "\n".join(parts).rstrip() + "\n"

@@ -13,8 +13,12 @@ and the quantile/ES used at origin ``t`` is computed from the z_s with ``s < t``
 Until ``min_resid`` such residuals exist the normal distribution is used; the distribution
 actually used is recorded per row in ``dist_used``. The mean return is taken to be zero.
 
-Note that ``f_t`` forecasts the 5-minute realized variance, not ``E[ret^2]``; the FHS
-residuals (and the fitted t) absorb that scale difference, the normal does not.
+Note that ``f_t`` forecasts the 5-minute realized variance, not ``E[ret^2]``, so ``z`` need
+not have unit variance (for level-HAR forecasts var(z) is well below 1: forecasts are
+mean-based and RV-driven, while the typical squared return is much smaller). Only FHS
+rescales for this, because it uses the empirical quantile of z directly. The normal and the
+unit-variance Student-t (nu fitted on z, but variance fixed at 1) cannot, so they can be
+systematically too conservative, or too liberal for forecasts with var(z) > 1 (e.g. EWMA).
 """
 
 from __future__ import annotations
