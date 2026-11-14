@@ -143,7 +143,9 @@ class _LinearVolModel(BaseVolModel):
         coef = (
             None
             if self._beta is None
-            else {n: float(b) for n, b in zip(("const", *self.feature_names), self._beta)}
+            else {
+                n: float(b) for n, b in zip(("const", *self.feature_names), self._beta, strict=True)
+            }
         )
         return {
             **self._base_params(),

@@ -12,8 +12,8 @@ import pytest
 from tests.unit.models.helpers import panel_from_rv, simulate_har_rv
 from volforecast.contracts import COL_COMPLETE, COL_RV, target_column
 from volforecast.features.har import har_aggregates, make_targets
-from volforecast.models.har import HAR, HARQ, LogHAR
 from volforecast.logging import get_logger
+from volforecast.models.har import HAR, HARQ, LogHAR
 
 log = get_logger(__name__)
 

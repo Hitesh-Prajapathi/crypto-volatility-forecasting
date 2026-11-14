@@ -129,7 +129,8 @@ def test_nonpositive_forecast_is_repaired(name: str, synthetic_panel: pd.DataFra
     bad = synthetic_panel.iloc[:650].copy()
     bad.iloc[-60:, bad.columns.get_loc(COL_RV)] = 0.0  # RV collapses to zero
     v = m.predict_variance(bad, 1)
-    assert math.isfinite(v) and v > 0.0
+    assert math.isfinite(v)
+    assert v > 0.0
 
 
 def test_naive_uses_last_valid_rv(synthetic_panel: pd.DataFrame) -> None:

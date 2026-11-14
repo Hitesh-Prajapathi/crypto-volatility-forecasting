@@ -27,9 +27,9 @@ def _simulate(params: list[float], o: int, nobs: int, seed: int) -> pd.DataFrame
 
 def _arch_forecast(panel: pd.DataFrame, o: int, dist: str, h: int) -> float:
     y = panel[COL_RET].dropna() * 100.0
-    res = arch_model(
-        y, mean="Constant", vol="GARCH", p=1, o=o, q=1, dist=dist, rescale=False
-    ).fit(disp="off", show_warning=False)
+    res = arch_model(y, mean="Constant", vol="GARCH", p=1, o=o, q=1, dist=dist, rescale=False).fit(
+        disp="off", show_warning=False
+    )
     return float(res.forecast(horizon=h, reindex=False).variance.to_numpy()[-1].sum() / 1e4)
 
 
@@ -78,7 +78,8 @@ def test_fit_failure_falls_back_to_ewma_then_previous_params() -> None:
     assert m.get_params()["params"] is None
     assert m.get_params()["n_fit_failures"] == 1
     v = m.predict_variance(short, 1)
-    assert math.isfinite(v) and v > 0
+    assert math.isfinite(v)
+    assert v > 0
     assert m.get_params()["n_fallback_predictions"] == 1
 
     m.fit(p, 1)

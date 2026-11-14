@@ -68,5 +68,6 @@ def test_lambda_estimation_persistent_vs_noisy() -> None:
     noisy = panel_from_rv(latent * np.exp(0.8 * rng.standard_normal(n)))
     lam_smooth = EWMARealized(estimate_lambda=True).fit(smooth, 1).get_params()["lam_fitted"]
     lam_noisy = EWMARealized(estimate_lambda=True).fit(noisy, 1).get_params()["lam_fitted"]
-    assert 0.5 <= lam_smooth <= 0.995 and 0.5 <= lam_noisy <= 0.995
+    assert 0.5 <= lam_smooth <= 0.995
+    assert 0.5 <= lam_noisy <= 0.995
     assert lam_noisy > lam_smooth  # noisy proxy needs more smoothing
