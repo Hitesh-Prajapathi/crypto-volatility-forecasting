@@ -27,9 +27,9 @@ def summarize_forecasts(forecasts: pd.DataFrame) -> pd.DataFrame:
         n = int(ok.sum())
         rows.append(
             {
-                "asset": asset,
-                "model": model,
-                "horizon": int(h),
+                "asset": str(asset),
+                "model": str(model),
+                "horizon": int(str(h)),
                 "n_origins": len(g),
                 "n_scored": n,
                 "qlike": float(qlike(y[ok], f[ok]).mean()) if n else float("nan"),
@@ -77,12 +77,12 @@ def log_backtest_run(
         # MLflow limits param values to 500 chars (6000 on newer servers): truncate defensively.
         mlflow.log_params({k: v[:500] for k, v in params.items()})
         mlflow.log_params({f"data_hash.{a}": h for a, h in data_hashes.items()})
-        for r in summary.itertuples():
-            base = f"{r.asset}.{r.model}.h{r.horizon}"
-            mlflow.log_metric(f"{base}.n_scored", float(r.n_scored))
-            if np.isfinite(r.qlike):
-                mlflow.log_metric(f"{base}.qlike", float(r.qlike))
-                mlflow.log_metric(f"{base}.mse", float(r.mse))
+        for r in summary.to_dict("records"):
+            base = f"{r['asset']}.{r['model']}.h{r['horizon']}"
+            mlflow.log_metric(f"{base}.n_scored", float(r["n_scored"]))
+            if np.isfinite(r["qlike"]):
+                mlflow.log_metric(f"{base}.qlike", float(r["qlike"]))
+                mlflow.log_metric(f"{base}.mse", float(r["mse"]))
         with tempfile.TemporaryDirectory() as tmp:
             t = Path(tmp)
             forecasts.to_parquet(t / "forecasts.parquet", index=False)

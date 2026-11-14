@@ -18,10 +18,10 @@ from typing import Any
 
 import cloudpickle
 import mlflow
-import mlflow.pyfunc
 import numpy as np
 import pandas as pd
 from mlflow.models import ModelSignature
+from mlflow.pyfunc.model import PythonModel
 from mlflow.types import ColSpec, Schema
 
 from volforecast.contracts import DATE_INDEX, PANEL_COLUMNS, VolModel
@@ -71,7 +71,7 @@ def frame_to_panel(frame: pd.DataFrame) -> pd.DataFrame:
     return panel.sort_index()
 
 
-class VolForecastPyfunc(mlflow.pyfunc.PythonModel):  # type: ignore[misc]
+class VolForecastPyfunc(PythonModel):
     """Serve a fitted VolModel; ``metadata`` carries asset / h / model / train end / data hash."""
 
     def __init__(self, metadata: dict[str, Any] | None = None, model: VolModel | None = None):
