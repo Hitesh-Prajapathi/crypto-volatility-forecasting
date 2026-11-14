@@ -1,0 +1,25 @@
+{
+  "fixture": "daily_panel_solusdt.parquet",
+  "window": {
+    "first_origin": "2022-01-01",
+    "min_train": 365,
+    "horizon": 1,
+    "refit_every": 1
+  },
+  "n_origins_scored": 728,
+  "har_qlike": 0.3397953848778764,
+  "qlike_ratio_vs_har": {
+    "log_har": 0.7973177901186361,
+    "harq": 0.8785043981268515
+  },
+  "ratio_thresholds": {
+    "log_har": 0.8173177901186361,
+    "harq": 0.8985043981268516
+  },
+  "threshold_margin": 0.02,
+  "var99_normal_har": {
+    "n_obs": 729,
+    "breaches": 6,
+    "kupiec_p": 0.620350334577117
+  }
+}

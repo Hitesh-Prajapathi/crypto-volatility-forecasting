@@ -1,0 +1,23 @@
+# Walk-forward backtest protocol (plan M2 P2.3). Validated by volforecast.pipeline.config.
+assets: [BTCUSDT, ETHUSDT, SOLUSDT]
+horizons: [1, 5]
+first_origin: 2021-01-01
+min_train: 365
+window: expanding
+benchmark: har
+n_jobs: -1
+models:
+  - {name: naive, refit_every: 1}
+  - {name: ewma, refit_every: 1}
+  - {name: ewma_rv, refit_every: 1}
+  - {name: garch, refit_every: 7, params: {dist: t}}
+  - {name: gjr_garch, refit_every: 7, params: {dist: t}}
+  - {name: har, refit_every: 1}
+  - {name: log_har, refit_every: 1}
+  - {name: har_cj, refit_every: 1}
+  - {name: shar, refit_every: 1}
+  - {name: harq, refit_every: 1}
+var:
+  alphas: [0.05, 0.01]
+  dists: [normal, t, fhs]
+  min_resid: 250

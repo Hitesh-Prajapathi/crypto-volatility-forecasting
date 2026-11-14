@@ -38,11 +38,12 @@ data: ## Ingest 5-minute bars: make data SYMBOL=BTCUSDT START=2017-08-17
 
 quality: lint typecheck test ## lint + typecheck + test
 
-backtest: ## Walk-forward backtest (placeholder)
-	@echo "make backtest: available after M2"
+backtest: ## Walk-forward backtest: make backtest [ASSETS="SOLUSDT ..."] [DATA_ROOT=path]
+	uv run python -m volforecast backtest --config configs/backtest.yaml --out artifacts/backtest \
+		$(if $(ASSETS),--assets $(ASSETS)) $(if $(DATA_ROOT),--data-root $(DATA_ROOT))
 
-report: ## Generate reports/tables.md and README results (placeholder)
-	@echo "make report: available after M2"
+report: ## Build reports/tables.md, results.json and figures from artifacts/backtest
+	uv run python -m volforecast report --run artifacts/backtest --out reports
 
 up: ## Start the local stack (docker compose)
 	docker compose up -d --build
