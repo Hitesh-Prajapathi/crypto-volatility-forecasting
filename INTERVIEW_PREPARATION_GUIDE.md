@@ -1,3 +1,5 @@
+> **Legacy notice:** This guide describes the legacy v0 system (tag `v0-legacy`), whose results were retracted (see [ADR-0002](docs/adr/0002-legacy-results-retracted.md)). It will be rewritten in milestone M9. Do not rely on its numbers or claims.
+
 # ₿ Crypto Volatility Forecasting: End-to-End Technical & Interview Master Guide
 
 ---
@@ -223,10 +225,7 @@ In `src/data_loader.py`:
 - The code programmatically detects and flattens this:
   ```python
   if isinstance(df.columns, pd.MultiIndex):
-      df.columns = [
-          col[0] if col[1] == "" or col[1] == symbol else col[0]
-          for col in df.columns
-      ]
+      df.columns = [col[0] if col[1] == "" or col[1] == symbol else col[0] for col in df.columns]
   ```
 - Case-insensitive fallback ensures that regardless of whether columns are returned as `Date` or `date`, `Close` or `close`, the schema remains uniform: `['Date', 'Open', 'High', 'Low', 'Close', 'Volume']`.
 - **Fault-Tolerant Caching:** If Yahoo Finance fails (rate-limit, timeout, network error), the pipeline catches the exception and falls back to `data/raw/btc_usd_raw.csv`.
@@ -291,8 +290,14 @@ A senior ML engineer or quant knows that **an error that low in financial volati
 ```python
 def get_feature_columns(df: pd.DataFrame) -> List[str]:
     exclude = [
-        "Date", "Open", "High", "Low", "Close", "Volume",
-        "log_close", TARGET_COLUMN,  # TARGET_COLUMN is "rv_30d"
+        "Date",
+        "Open",
+        "High",
+        "Low",
+        "Close",
+        "Volume",
+        "log_close",
+        TARGET_COLUMN,  # TARGET_COLUMN is "rv_30d"
     ]
     return [c for c in df.columns if c not in exclude]
 ```
@@ -377,9 +382,9 @@ $$\hat{y}_{\text{RF}}(x) = \frac{1}{B} \sum_{b=1}^B T_b(x; \Theta_b)$$
 #### Hyperparameters in `src/config.py`
 ```python
 RF_N_ESTIMATORS = 200  # Number of trees
-RF_MAX_DEPTH = 10      # Prevents trees from memorizing noise
-RF_RANDOM_STATE = 42   # Deterministic reproducibility
-n_jobs = -1            # Parallel processing across all CPU cores
+RF_MAX_DEPTH = 10  # Prevents trees from memorizing noise
+RF_RANDOM_STATE = 42  # Deterministic reproducibility
+n_jobs = -1  # Parallel processing across all CPU cores
 ```
 
 #### Strengths & Limitations
@@ -411,9 +416,9 @@ $$w_j^* = -\frac{\sum_{i \in I_j} g_i}{\sum_{i \in I_j} h_i + \lambda}$$
 
 #### Hyperparameters in `src/config.py`
 ```python
-XGB_N_ESTIMATORS = 200   # Boosting rounds
-XGB_MAX_DEPTH = 6        # Shallow depth prevents overfitting
-XGB_LEARNING_RATE = 0.05 # Shrinkage parameter eta
+XGB_N_ESTIMATORS = 200  # Boosting rounds
+XGB_MAX_DEPTH = 6  # Shallow depth prevents overfitting
+XGB_LEARNING_RATE = 0.05  # Shrinkage parameter eta
 XGB_RANDOM_STATE = 42
 ```
 
@@ -452,11 +457,11 @@ class LSTMModel(nn.Module):
         self.fc2 = nn.Linear(8, 1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        lstm_out, _ = self.lstm(x)       # (batch, seq_len, hidden)
-        last = lstm_out[:, -1, :]        # Take last time step
+        lstm_out, _ = self.lstm(x)  # (batch, seq_len, hidden)
+        last = lstm_out[:, -1, :]  # Take last time step
         out = self.dropout(last)
         out = self.relu(self.fc1(out))
-        out = self.fc2(out)              # Single scalar forecast
+        out = self.fc2(out)  # Single scalar forecast
         return out.squeeze(-1)
 ```
 
@@ -535,6 +540,7 @@ In production and engineering interviews, orchestrating multi-service architectu
 In `src/config.py`:
 ```python
 import os
+
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 ```
@@ -545,7 +551,8 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 In `src/visualize.py`:
 ```python
 import matplotlib
-matplotlib.use('Agg')
+
+matplotlib.use("Agg")
 ```
 - Matplotlib defaults to GUI-based backends (`TkAgg`, `MacOSX`, `Qt5Agg`). In server environments, Docker containers, or background CLI tasks without an active window display (`DISPLAY`), scripts crash with `no display name and no $DISPLAY environment variable`.
 - Setting `matplotlib.use('Agg')` forces rasterization to in-memory buffers, allowing headless plot generation and direct PNG exports.
