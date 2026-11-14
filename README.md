@@ -46,32 +46,36 @@ make help                 # list all targets
 ## Repository layout
 
 ```
-src/volforecast/   Package: data, features, models, evaluation, registry, monitoring, flows, serving
+src/volforecast/   Package: data, features, models, evaluation, pipeline (backtest), registry, monitoring, flows, serving
 tests/             Unit, property and integration tests (leakage guards live here)
-docs/              Architecture, execution plan, ADRs
+configs/           Backtest configuration (configs/backtest.yaml)
+docs/              Architecture, execution plan, platform guide, runbook, SLOs, model card
 docs/adr/          Architecture decision records
 legacy/            Frozen v0 code, kept for transparency (not linted, not supported)
 notebooks/         Original exploratory notebook
-deploy/            Helm chart, kind config, Argo CD manifests (added in later milestones)
+deploy/            Helm chart, kind config, Argo CD manifests, monitoring (dashboards, alerts)
+loadtest/          k6 load test
 docker/, compose.yaml   Container images and local stack
-.github/workflows/ CI
+.github/workflows/ CI and CD
 Makefile           Developer entry points
 ```
+
+Docs: [architecture](docs/architecture.md), [platform guide](docs/platform.md), [runbook](docs/runbook.md), [SLOs](docs/slo.md), [model card](docs/model_card.md).
 
 ## Roadmap and status
 
 The full plan is in [docs/execution_plan.md](docs/execution_plan.md).
 
-- [ ] **M0** Repo foundation and honest baseline (in progress)
-- [ ] **M1** Intraday data and realized measures
-- [ ] **M2** Baselines, walk-forward evaluation, statistical tests
-- [ ] **M3** ML/DL challengers, ensemble, interpretation
-- [ ] **M4** VaR / ES backtesting
-- [ ] **M5** MLOps: MLflow, Prefect, drift monitoring
-- [ ] **M6** Serving hardening and local stack
-- [ ] **M7** CI/CD, Kubernetes, Helm, GitOps
-- [ ] **M8** Observability, load testing, SRE docs
-- [ ] **M9** Presentation and live dashboard
+- [x] **M0** Repo foundation and honest baseline
+- [x] **M1** Intraday data and realized measures
+- [x] **M2** Baselines, walk-forward evaluation, statistical tests, report, regression gate
+- [ ] **M3** ML/DL challengers, ensemble, interpretation (in progress: GBM, ensemble)
+- [x] **M4** VaR / ES backtesting
+- [ ] **M5** MLOps: MLflow, Prefect, forecast store, drift monitoring (in progress)
+- [ ] **M6** Serving hardening and local stack (partial: images and compose done, real API pending)
+- [ ] **M7** CI/CD, Kubernetes, Helm, GitOps (manifests done: Helm, kind, Argo CD, CD workflow; not yet run on a cluster)
+- [ ] **M8** Observability, load testing, SRE docs (manifests done: dashboards, alerts, k6; runbook, SLOs and model card in `docs/`)
+- [ ] **M9** Presentation and live dashboard (pending)
 
 ## Results
 
