@@ -1,0 +1,36 @@
+# kube-prometheus-stack as a platform app (Prometheus Operator CRDs, Prometheus, Alertmanager, Grafana).
+# Server-side apply is required: the CRDs exceed the client-side annotation size limit.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-monitoring
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: 93.3.0
+    helm:
+      releaseName: kube-prometheus-stack
+      valuesObject:
+        prometheus:
+          prometheusSpec:
+            serviceMonitorSelectorNilUsesHelmValues: false
+            ruleSelectorNilUsesHelmValues: false
+            retention: 7d
+        grafana:
+          sidecar:
+            dashboards:
+              enabled: true
+              searchNamespace: ALL
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

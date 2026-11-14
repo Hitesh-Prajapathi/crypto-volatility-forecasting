@@ -1,0 +1,157 @@
+name: cd
+
+# Build, scan, sign and attest the images, then open a GitOps PR bumping image.tag.
+# CI never talks to a cluster: Argo CD pulls the merged change.
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write # cosign keyless + provenance (GitHub OIDC)
+  attestations: write
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  images:
+    name: image (${{ matrix.image }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [api, jobs]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute lowercase image name
+        id: name
+        run: echo "image=${REGISTRY}/${GITHUB_REPOSITORY,,}-${{ matrix.image }}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.name.outputs.image }}
+          tags: |
+            type=sha,prefix=sha-,format=short
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push (amd64 + arm64)
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/${{ matrix.image }}.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            REVISION=${{ github.sha }}
+            SOURCE=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+          provenance: false # replaced by the signed attestation below
+
+      - name: Trivy scan (fail on CRITICAL)
+        uses: aquasecurity/trivy-action@0.33.1
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          image-ref: ${{ steps.name.outputs.image }}@${{ steps.build.outputs.digest }}
+          severity: CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+          scanners: vuln
+
+      - name: SBOM (SPDX)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ steps.name.outputs.image }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: sbom-${{ matrix.image }}.spdx.json
+          artifact-name: sbom-${{ matrix.image }}.spdx.json
+
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Sign image (cosign keyless)
+        run: cosign sign --yes "${IMAGE}@${DIGEST}"
+        env:
+          IMAGE: ${{ steps.name.outputs.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+
+      - name: Attach SBOM attestation
+        run: cosign attest --yes --type spdxjson --predicate "sbom-${{ matrix.image }}.spdx.json" "${IMAGE}@${DIGEST}"
+        env:
+          IMAGE: ${{ steps.name.outputs.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+
+      - name: Build provenance attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ steps.name.outputs.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+  gitops-bump:
+    name: gitops bump
+    needs: images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute new image tag
+        id: tag
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bump image.tag in the Helm values
+        env:
+          TAG: ${{ steps.tag.outputs.value }}
+        run: |
+          for f in deploy/helm/volforecast/values-kind.yaml deploy/helm/volforecast/values-cloud.yaml; do
+            yq -i '.image.tag = strenv(TAG)' "$f"
+          done
+          git diff --stat
+
+      - name: Open the bump PR
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: gitops/bump-${{ steps.tag.outputs.value }}
+          base: ${{ github.event.repository.default_branch }}
+          commit-message: "chore(deploy): bump image.tag to ${{ steps.tag.outputs.value }}"
+          title: "chore(deploy): bump image.tag to ${{ steps.tag.outputs.value }}"
+          body: |
+            Automated GitOps bump produced by `cd.yml` for ${{ github.sha }}.
+
+            Merging this PR makes Argo CD roll out the new images.
+            Rollback: `git revert` the merge commit of this PR.
+          labels: gitops,automated
+          delete-branch: true

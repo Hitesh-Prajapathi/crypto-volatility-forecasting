@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "image": {
+      "type": "object",
+      "required": ["api", "jobs"],
+      "properties": {
+        "api": {"type": "object", "required": ["repository"], "properties": {"repository": {"type": "string", "minLength": 1}}},
+        "jobs": {"type": "object", "required": ["repository"], "properties": {"repository": {"type": "string", "minLength": 1}}},
+        "tag": {"type": "string"},
+        "pullPolicy": {"type": "string", "enum": ["Always", "IfNotPresent", "Never"]}
+      }
+    },
+    "api": {
+      "type": "object",
+      "properties": {
+        "replicas": {"type": "integer", "minimum": 1},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535}
+      }
+    },
+    "service": {
+      "type": "object",
+      "properties": {
+        "type": {"type": "string", "enum": ["ClusterIP", "NodePort", "LoadBalancer"]},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535}
+      }
+    },
+    "autoscaling": {
+      "type": "object",
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "minReplicas": {"type": "integer", "minimum": 1},
+        "maxReplicas": {"type": "integer", "minimum": 1},
+        "targetCPUUtilizationPercentage": {"type": "integer", "minimum": 1, "maximum": 100}
+      }
+    },
+    "dataVolume": {
+      "type": "object",
+      "properties": {"type": {"type": "string", "enum": ["emptyDir", "pvc"]}}
+    },
+    "secrets": {
+      "type": "object",
+      "properties": {
+        "existingSecret": {"type": "string"},
+        "create": {"type": "boolean"}
+      }
+    },
+    "cronJobs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "flow", "schedule"],
+        "properties": {
+          "name": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"},
+          "flow": {"type": "string", "enum": ["ingest", "forecast", "evaluate", "retrain"]},
+          "schedule": {"type": "string", "minLength": 9}
+        }
+      }
+    }
+  }
+}

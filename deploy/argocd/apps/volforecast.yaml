@@ -1,0 +1,37 @@
+# The application chart. A rollout (or rollback) is a git commit that changes image.tag in
+# deploy/helm/volforecast/values-kind.yaml. PLACEHOLDER repoURL: see root-app.yaml.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: volforecast
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/OWNER/crypto-volatility-forecasting.git
+    targetRevision: HEAD
+    path: deploy/helm/volforecast
+    helm:
+      releaseName: volforecast
+      valueFiles:
+        - values-kind.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: volforecast
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff: {duration: 10s, factor: 2, maxDuration: 3m}
+  ignoreDifferences:
+    # The HPA owns replicas; do not fight it.
+    - group: apps
+      kind: Deployment
+      jsonPointers: [/spec/replicas]
