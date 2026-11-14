@@ -71,3 +71,16 @@ def test_load_config_rejects_non_mapping(tmp_path: Path) -> None:
     p.write_text("- just\n- a list\n")
     with pytest.raises(ValueError, match="mapping"):
         load_config(p)
+
+
+def test_reuse_instance_option_defaults_off_and_reaches_engine_spec() -> None:
+    from volforecast.pipeline.backtest import model_specs
+
+    cfg = BacktestConfig.model_validate(
+        {
+            "assets": ["BTCUSDT"],
+            "models": [{"name": "har"}, {"name": "ens_inv", "reuse_instance": True}],
+        }
+    )
+    assert [m.reuse_instance for m in cfg.models] == [False, True]
+    assert [s.reuse_instance for s in model_specs(cfg)] == [False, True]

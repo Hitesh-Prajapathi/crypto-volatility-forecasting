@@ -230,7 +230,7 @@ class HAR(_LevelModel):
     """
 
     name = "har"
-    feature_names = ("rv_d", "rv_w", "rv_m")
+    feature_names: tuple[str, ...] = ("rv_d", "rv_w", "rv_m")
     required_columns = (COL_RV,)
 
     def _raw_design(self, panel: pd.DataFrame) -> FloatArray:
@@ -252,7 +252,7 @@ class LogHAR(_LinearVolModel):
     """
 
     name = "log_har"
-    feature_names = ("log_rv_d", "log_rv_w", "log_rv_m")
+    feature_names: tuple[str, ...] = ("log_rv_d", "log_rv_w", "log_rv_m")
     required_columns = (COL_RV,)
     _log_target = True
 
