@@ -166,7 +166,6 @@ class _Ensemble(BaseVolModel):
             return
         for s in sorted(self._hist)[: len(self._hist) - (keep + h + 5)]:
             self._hist.pop(s, None)
-            self._weight_log.pop(s, None)
 
     def _keep_origins(self) -> int | None:
         return None

@@ -17,7 +17,14 @@ models:
   - {name: har_cj, refit_every: 1}
   - {name: shar, refit_every: 1}
   - {name: harq, refit_every: 1}
+  - {name: lgbm, refit_every: 7}
+  - {name: xgb, refit_every: 7}
+  # Combinations of log_har, harq, lgbm. The ensemble refits its members itself (HAR daily, lgbm
+  # weekly). ens_inv keeps its members' out-of-sample forecast history inside the object, so the
+  # engine must fit it once: a huge refit_every (the engine discards the instance on refit).
+  - {name: ens_eq, refit_every: 7}
+  - {name: ens_inv, refit_every: 1000000}
 var:
   alphas: [0.05, 0.01]
-  dists: [normal, t, fhs]
+  dists: [normal, normal_cal, t, t_cal, fhs]
   min_resid: 250

@@ -47,7 +47,6 @@ from volforecast.contracts import (
     COL_RS_POS,
     COL_RV,
 )
-from volforecast.features.har import har_aggregates
 from volforecast.logging import get_logger
 from volforecast.models.base import BaseVolModel, BoolArray, FloatArray, ModelInputError
 
@@ -98,7 +97,7 @@ def gbm_features(panel: pd.DataFrame, exog: str | None = None) -> pd.DataFrame:
     cols["ret"] = ret
     cols["neg_ret"] = ret * (ret < 0).astype(float)
     cols["dow_next"] = pd.Series(
-        ((panel.index.day_of_week + 1) % 7).astype(float), index=panel.index
+        ((pd.DatetimeIndex(panel.index).day_of_week + 1) % 7).astype(float), index=panel.index
     )
     for k in (1, 5, 22):
         cols[f"d_log_rv_{k}"] = lrv - lrv.shift(k)
@@ -201,7 +200,7 @@ class _GBMVol(BaseVolModel):
 
         def split(frac: float) -> tuple[FloatArray, FloatArray, FloatArray, FloatArray]:
             """Time-ordered (train, holdout) split with an ``h``-day embargo between blocks."""
-            cut = int(round(n * (1.0 - frac)))
+            cut = round(n * (1.0 - frac))
             boundary = pos[cut]
             tr = pos[:cut] <= boundary - h  # targets of train rows are known by `boundary`
             return X[:cut][tr], z[:cut][tr], X[cut:], z[cut:]
@@ -296,8 +295,8 @@ class LightGBMVol(_GBMVol):
         import lightgbm as lgb
 
         train = lgb.Dataset(X, label=y, feature_name=names, free_raw_data=False)
-        callbacks = []
-        sets = []
+        callbacks: list[Any] = []
+        sets: list[Any] = []
         if valid is not None and self.early_stopping_rounds is not None:
             sets = [lgb.Dataset(valid[0], label=valid[1], reference=train)]
             callbacks = [lgb.early_stopping(self.early_stopping_rounds, verbose=False)]

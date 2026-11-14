@@ -25,8 +25,10 @@ def test_shipped_config_is_valid_and_matches_plan() -> None:
     refit = {m.name: m.refit_every for m in cfg.models}
     assert refit["garch"] == refit["gjr_garch"] == 7
     assert all(refit[n] == 1 for n in ("har", "log_har", "har_cj", "shar", "harq"))
+    assert refit["lgbm"] == refit["xgb"] == refit["ens_eq"] == 7
+    assert refit["ens_inv"] >= 10_000  # stateful: fitted once, members refit internally
     assert cfg.var.alphas == [0.05, 0.01]
-    assert cfg.var.dists == ["normal", "t", "fhs"]
+    assert cfg.var.dists == ["normal", "normal_cal", "t", "t_cal", "fhs"]
     assert cfg.var.min_resid == 250
 
 
