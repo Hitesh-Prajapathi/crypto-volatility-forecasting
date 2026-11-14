@@ -5,10 +5,10 @@ HARQ; updating them hides a regression unless the change in model behaviour is i
 only when a model or feature change is meant to move the numbers, and include the diff of
 ``golden.json`` (and the reason) in the pull request for review.
 
-    uv run python tests/regression/update_golden.py                 # recompute golden values
-    uv run python tests/regression/update_golden.py --rebuild-fixture --data-root /path/to/data
+    uv run python -m tests.regression.update_golden                  # recompute golden values
+    uv run python -m tests.regression.update_golden --rebuild-fixture --data-root /path/to/data
 
-``--rebuild-fixture`` re-slices the frozen daily panel from real klines (SOLUSDT, 2021-2023)
+``--rebuild-fixture`` re-slices the frozen daily panel from real klines (BTCUSDT, 2021-2023)
 and is even rarer: it changes the data the gate is defined on.
 """
 

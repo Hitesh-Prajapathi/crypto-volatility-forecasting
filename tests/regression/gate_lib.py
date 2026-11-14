@@ -18,10 +18,10 @@ from volforecast.evaluation.walkforward import ModelSpec, WalkForwardConfig, run
 from volforecast.models.factory import build_model
 
 HERE = Path(__file__).resolve().parent
-FIXTURE = HERE.parent / "fixtures" / "daily_panel_solusdt.parquet"
+FIXTURE = HERE.parent / "fixtures" / "daily_panel_btcusdt.parquet"
 GOLDEN = HERE / "golden.json"
 
-ASSET = "SOLUSDT"
+ASSET = "BTCUSDT"
 FIXTURE_START = "2021-01-01"
 FIXTURE_END = "2023-12-31"
 FIRST_ORIGIN = "2022-01-01"
