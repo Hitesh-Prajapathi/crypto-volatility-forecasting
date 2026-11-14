@@ -1,0 +1,11 @@
+volforecast {{ .Chart.AppVersion }} installed as {{ .Release.Name }} in {{ .Release.Namespace }}.
+
+API (in-cluster): http://{{ include "volforecast.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}
+Port-forward:     kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "volforecast.fullname" . }} 8000:{{ .Values.service.port }}
+Smoke test:       helm test {{ .Release.Name }} -n {{ .Release.Namespace }}
+CronJobs:         kubectl -n {{ .Release.Namespace }} get cronjob -l app.kubernetes.io/instance={{ .Release.Name }}
+{{- if not (or .Values.secrets.existingSecret .Values.secrets.create .Values.externalSecret.enabled) }}
+
+WARNING: no secret source configured. Pods expect Secret "{{ include "volforecast.secretName" . }}" with
+VOLF_DATABASE_URL, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY (set secrets.existingSecret / externalSecret.enabled).
+{{- end }}

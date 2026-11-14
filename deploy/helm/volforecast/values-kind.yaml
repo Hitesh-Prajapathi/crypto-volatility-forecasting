@@ -1,0 +1,47 @@
+# kind overlay: small resources, NodePort/port-forward access, Sealed Secrets.
+# Local images are loaded with `kind load docker-image` (see deploy/kind/bootstrap.sh).
+image:
+  api:
+    repository: ghcr.io/OWNER/crypto-volatility-forecasting-api
+  jobs:
+    repository: ghcr.io/OWNER/crypto-volatility-forecasting-jobs
+  # Bumped automatically by the CD pipeline (gitops-bump job).
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+secrets:
+  # Created by bootstrap.sh as a SealedSecret (or a plain dev Secret when kubeseal is absent).
+  existingSecret: volforecast-secrets
+
+api:
+  resources:
+    requests: {cpu: 50m, memory: 192Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+
+autoscaling:
+  minReplicas: 2
+  maxReplicas: 4
+
+service:
+  type: NodePort
+  nodePort: 30080
+
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: volforecast.localtest.me
+      paths:
+        - {path: /, pathType: Prefix}
+
+monitoring:
+  enabled: true
+
+cronJobDefaults:
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: "1", memory: 1Gi}
+
+networkPolicy:
+  # kindnet does not enforce NetworkPolicy; the objects are still applied so they are exercised.
+  enabled: true

@@ -1,0 +1,96 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $np := .Values.networkPolicy }}
+{{- if $np.defaultDenyIngress }}
+# Namespace-wide default deny for ingress; the policies below re-open what is needed.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "volforecast.fullname" . }}-default-deny-ingress
+  labels:
+    {{- include "volforecast.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+{{- end }}
+# API: ingress only from the ingress controller / monitoring namespaces; egress to DNS + backends.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "volforecast.fullname" . }}-api
+  labels:
+    {{- include "volforecast.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "volforecast.apiSelectorLabels" . | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        {{- range $np.ingressNamespaces }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . }}
+        {{- end }}
+      ports:
+        - {protocol: TCP, port: {{ .Values.api.port }}}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $np.dnsNamespace }}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    {{- range $np.backends }}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- toYaml .podLabels | nindent 14 }}
+          {{- if .namespace }}
+          namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .namespace }}
+          {{- end }}
+      ports:
+        - {protocol: TCP, port: {{ .port }}}
+    {{- end }}
+---
+# Jobs: no ingress at all; egress to DNS + backends (+ 443 to the internet for market data).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "volforecast.fullname" . }}-jobs
+  labels:
+    {{- include "volforecast.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "volforecast.jobSelectorLabels" . | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $np.dnsNamespace }}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    {{- range $np.backends }}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- toYaml .podLabels | nindent 14 }}
+          {{- if .namespace }}
+          namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .namespace }}
+          {{- end }}
+      ports:
+        - {protocol: TCP, port: {{ .port }}}
+    {{- end }}
+    {{- if $np.jobsEgress443 }}
+    - ports:
+        - {protocol: TCP, port: 443}
+    {{- end }}
+{{- end }}

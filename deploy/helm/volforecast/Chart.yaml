@@ -1,0 +1,12 @@
+apiVersion: v2
+name: volforecast
+description: Realized-volatility forecasting API, scheduled batch jobs, and their Kubernetes plumbing.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.27.0-0"
+keywords: [volatility, forecasting, fastapi, mlops]
+sources:
+  - https://github.com/OWNER/crypto-volatility-forecasting
+maintainers:
+  - name: volforecast maintainers
