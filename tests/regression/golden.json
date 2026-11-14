@@ -1,0 +1,25 @@
+{
+  "fixture": "daily_panel_btcusdt.parquet",
+  "window": {
+    "first_origin": "2022-01-01",
+    "min_train": 365,
+    "horizon": 1,
+    "refit_every": 1
+  },
+  "n_origins_scored": 728,
+  "har_qlike": 0.4655242711442002,
+  "qlike_ratio_vs_har": {
+    "log_har": 0.8876383011457013,
+    "harq": 0.8950277387330396
+  },
+  "ratio_thresholds": {
+    "log_har": 0.9076383011457013,
+    "harq": 0.9150277387330397
+  },
+  "threshold_margin": 0.02,
+  "var99_normal_har": {
+    "n_obs": 729,
+    "breaches": 10,
+    "kupiec_p": 0.3396320669877409
+  }
+}
