@@ -12,7 +12,7 @@ retrain:
     - {name: har, refit_every: 5}
   # Optional candidates: any factory model whose name starts with one of these prefixes is
   # added at runtime if present (they are not imported statically). Failures are skipped.
-  optional_prefixes: [lgbm, ens_]
+  optional_prefixes: [lgbm, xgb, ens_]
   optional_refit_every: 20
   wf_days: 650      # 365 gate window + 250 FHS residual burn-in + margin
   min_train: 365
