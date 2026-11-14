@@ -11,6 +11,13 @@ All notable changes to this project are documented here. The format follows [Kee
 - Pre-commit configuration (hygiene hooks, ruff, mypy, gitleaks, nbstripout) and `.editorconfig`.
 - GitHub Actions CI (lint, typecheck, test with coverage, security, Helm validation) and Dependabot configuration.
 - Documentation: `docs/architecture.md`, `docs/execution_plan.md`, and architecture decision records 0001-0007, 0009 and 0010.
+- M1: Binance/Coinbase kline ingestion (`python -m volforecast.data ingest|quality`), Pandera schemas, Parquet store with content-hash manifest, missing-bar policy and grid snapping (ADR-0003), realized measures (RV, bipower variation, jumps, semivariances) and HAR features.
+- M2: baseline models (naive, EWMA, GARCH, GJR-GARCH, HAR family), expanding walk-forward engine, loss and statistical tests (QLIKE, Diebold-Mariano, Mincer-Zarnowitz, MCS), backtest pipeline and report (`python -m volforecast backtest|report`, `make backtest`, `make report`) and a regression gate.
+- M4: VaR and ES backtests.
+- M6: API and jobs container images and a Docker Compose local stack (API, MLflow, Prefect, MinIO, Postgres, Prometheus, Grafana).
+- M7: Helm chart, kind bootstrap, Argo CD app-of-apps and the CD workflow (not yet run on a cluster).
+- M8: Grafana dashboards, Prometheus alert rules, k6 load test.
+- Documentation: `docs/platform.md`, `docs/runbook.md`, `docs/slo.md` and `docs/model_card.md`.
 
 ### Changed
 
