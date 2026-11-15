@@ -89,3 +89,14 @@ def build_model(name: str, **params: Any) -> VolModel:
     except KeyError:
         raise ValueError(f"unknown model {name!r}; available: {list_models()}") from None
     return ctor(**params)
+
+
+#: Models that accumulate out-of-sample state across walk-forward refits. Any walk-forward
+#: driver (backtest, retrain) must run them with ``ModelSpec(reuse_instance=True)``; otherwise
+#: the state is discarded at every refit (``ens_inv`` then silently degrades to ``ens_eq``).
+STATEFUL_MODELS: frozenset[str] = frozenset({"ens_inv"})
+
+
+def is_stateful_model(name: str) -> bool:
+    """True if `name` must be walked forward on one reused instance (see ``STATEFUL_MODELS``)."""
+    return name in STATEFUL_MODELS
