@@ -40,6 +40,7 @@ REGIME_LABELS = ("low", "mid", "high")
 REGIME_WINDOW = 22
 MIN_EVAL_OBS = 30
 SHOWCASE_YEAR = 2022
+DEFAULT_BENCHMARK2 = "log_har_dow"
 
 
 # ── alignment ────────────────────────────────────────────────────────────────
@@ -84,13 +85,26 @@ def _ratio_vs(loss: pd.DataFrame, benchmark: str) -> pd.Series:
 
 
 def evaluate_block(
-    rv: pd.Series, fc: pd.DataFrame, h: int, benchmark: str, mcs_reps: int, seed: int
+    rv: pd.Series,
+    fc: pd.DataFrame,
+    h: int,
+    benchmark: str,
+    mcs_reps: int,
+    seed: int,
+    benchmark2: str | None = None,
 ) -> dict[str, Any]:
-    """All headline metrics for one asset x horizon (inputs already aligned)."""
+    """All headline metrics for one asset x horizon (inputs already aligned).
+
+    If ``benchmark2`` is a column of ``fc`` (and differs from ``benchmark``), each model record
+    also gets ``vs_benchmark2`` = ``{ratio, dm_p, dm_stat}`` against it (same sample and DM
+    settings as the primary benchmark; ``dm_*`` is None for the secondary benchmark itself).
+    """
     qlike = loss_frame(rv, fc, "qlike")
     mse = loss_frame(rv, fc, "mse")
     mae = loss_frame(rv, fc, "mae_vol")
     ratio = _ratio_vs(qlike, benchmark)
+    has_b2 = benchmark2 is not None and benchmark2 != benchmark and benchmark2 in fc.columns
+    ratio2 = _ratio_vs(qlike, benchmark2) if has_b2 and benchmark2 else None
     models: dict[str, dict[str, Any]] = {}
     for m in fc.columns:
         rec: dict[str, Any] = {
@@ -108,6 +122,12 @@ def evaluate_block(
         if m != benchmark:
             dm = diebold_mariano(qlike[m], qlike[benchmark], h=h, alternative="less")
             rec["dm_p"], rec["dm_stat"] = dm.pvalue, dm.statistic
+        if has_b2 and benchmark2 and ratio2 is not None:
+            b2: dict[str, Any] = {"ratio": float(ratio2[m]), "dm_p": None, "dm_stat": None}
+            if m != benchmark2:
+                dm2 = diebold_mariano(qlike[m], qlike[benchmark2], h=h, alternative="less")
+                b2["dm_p"], b2["dm_stat"] = dm2.pvalue, dm2.statistic
+            rec["vs_benchmark2"] = b2
         mz = mincer_zarnowitz(rv.to_numpy(), fc[m].to_numpy())
         rec.update(mz_r2=mz["r2"], mz_wald_p=mz["wald_pvalue"], mz_a=mz["a"], mz_b=mz["b"])
         models[m] = rec
@@ -255,16 +275,25 @@ def md_table(headers: list[str], rows: list[list[str]]) -> str:
     return "\n".join(lines)
 
 
-def _main_table(block: dict[str, Any], benchmark: str) -> str:
+def _main_table(block: dict[str, Any], benchmark: str, benchmark2: str | None = None) -> str:
     rows = []
+    show2 = benchmark2 is not None and all("vs_benchmark2" in r for r in block["models"].values())
     for m, r in block["models"].items():
         mcs = r.get("in_mcs90")
+        extra: list[str] = []
+        if show2:
+            b2 = r["vs_benchmark2"]
+            extra = [
+                "-" if m == benchmark2 else _fmt(b2["ratio"], ".3f"),
+                "-" if m == benchmark2 else _fmt(b2["dm_p"], ".3f"),
+            ]
         rows.append(
             [
                 f"{m} (benchmark)" if m == benchmark else m,
                 _fmt(r["qlike"], ".4f"),
                 _fmt(r["qlike_ratio"], ".3f"),
                 "-" if m == benchmark else _fmt(r["dm_p"], ".3f"),
+                *extra,
                 _fmt(r["mse"], ".3e"),
                 _fmt(r["mz_r2"], ".3f"),
                 _fmt(r["mz_wald_p"], ".3f"),
@@ -277,6 +306,7 @@ def _main_table(block: dict[str, Any], benchmark: str) -> str:
             "QLIKE",
             "ratio vs HAR",
             "DM p (beats HAR)",
+            *([f"ratio vs {benchmark2}", f"DM p (beats {benchmark2})"] if show2 else []),
             "MSE",
             "MZ R2",
             "MZ Wald p",
@@ -342,6 +372,7 @@ def _var_tables(var_tab: pd.DataFrame) -> str:
 def render_markdown(results: dict[str, Any], detail: bool = True) -> str:
     """Markdown for ``reports/tables.md`` (``detail=False``: headline tables for the README)."""
     bm = results["benchmark"]
+    bm2 = results.get("benchmark2")
     parts = ["# Out-of-sample results", ""]
     meta = results["meta"]
     parts.append(
@@ -351,6 +382,13 @@ def render_markdown(results: dict[str, Any], detail: bool = True) -> str:
         "(n shown per table). DM: one-sided HLN-corrected Diebold-Mariano p-value for "
         f"'model beats {bm.upper()}'. MCS: Hansen-Lunde-Nason model confidence set at the 90% "
         f"level ({meta['mcs_reps']} bootstrap reps, seed {meta['seed']})."
+        + (
+            f" Where present, 'ratio vs {bm2}' is the model's mean QLIKE divided by {bm2}'s "
+            f"and 'DM p (beats {bm2})' the one-sided HLN Diebold-Mariano p-value for 'model "
+            f"beats {bm2}', on the same common origins (shown as - on the {bm2} row)."
+            if bm2
+            else ""
+        )
     )
     for asset, ablock in results["assets"].items():
         parts += ["", f"## {asset}"]
@@ -359,7 +397,7 @@ def render_markdown(results: dict[str, Any], detail: bool = True) -> str:
                 "",
                 f"### h={h} (n={block['n']}, origins {block['start']} to {block['end']})",
                 "",
-                _main_table(block, bm),
+                _main_table(block, bm, bm2),
             ]
             if block["excluded_models"]:
                 parts += [
@@ -403,12 +441,19 @@ def build_report(
     cfg: BacktestConfig,
     out_dir: str | Path,
     run_meta: Mapping[str, Any] | None = None,
+    benchmark2: str | None = DEFAULT_BENCHMARK2,
 ) -> dict[str, Any]:
-    """Write ``results.json``, ``tables.md`` and figures under ``out_dir``; return the results."""
+    """Write ``results.json``, ``tables.md`` and figures under ``out_dir``; return the results.
+
+    ``benchmark2`` is a secondary benchmark (default ``log_har_dow``); when it is not among the
+    run's models the extra columns/keys are silently omitted. ``None`` disables it.
+    """
     out = Path(out_dir)
     fig_dir = out / "figures"
     fig_dir.mkdir(parents=True, exist_ok=True)
     bm = cfg.benchmark
+    bm2 = benchmark2 if benchmark2 and benchmark2 != bm else None
+    used_bm2 = False
     assets: dict[str, Any] = {}
     figures: list[str] = []
 
@@ -420,7 +465,8 @@ def build_report(
             if bm not in fc.columns or len(rv) < MIN_EVAL_OBS:
                 log.warning("block_skipped", asset=asset, h=h, n=len(rv))
                 continue
-            block = evaluate_block(rv, fc, h, bm, cfg.mcs_reps, cfg.seed)
+            block = evaluate_block(rv, fc, h, bm, cfg.mcs_reps, cfg.seed, bm2)
+            used_bm2 = used_bm2 or any("vs_benchmark2" in r for r in block["models"].values())
             block.update(
                 n=len(rv),
                 start=str(rv.index[0].date()),
@@ -448,6 +494,7 @@ def build_report(
 
     results: dict[str, Any] = {
         "benchmark": bm,
+        "benchmark2": bm2 if used_bm2 else None,
         "meta": {
             "window": cfg.window,
             "first_origin": str(cfg.first_origin),

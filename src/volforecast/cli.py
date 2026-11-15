@@ -33,6 +33,11 @@ def _build_parser() -> argparse.ArgumentParser:
     rp.add_argument("--run", type=Path, default=Path("artifacts/backtest"))
     rp.add_argument("--out", type=Path, default=Path("reports"))
     rp.add_argument(
+        "--benchmark2",
+        default="log_har_dow",
+        help="secondary benchmark for extra ratio/DM columns (omitted if absent; 'none' disables)",
+    )
+    rp.add_argument(
         "--inject-readme",
         type=Path,
         default=None,
@@ -74,7 +79,8 @@ def _cmd_report(args: argparse.Namespace) -> int:
     panels = {a: pd.read_parquet(args.run / "panels" / f"{a}.parquet") for a in assets}
     cfg = cfg.model_copy(update={"assets": assets})
     run_info = {"git": meta.get("git"), "data_hashes": meta.get("data_hashes")}
-    build_report(forecasts, panels, cfg, args.out, run_meta=run_info)
+    bm2 = None if args.benchmark2.lower() == "none" else args.benchmark2
+    build_report(forecasts, panels, cfg, args.out, run_meta=run_info, benchmark2=bm2)
     if args.inject_readme is not None:
         inject_readme(args.inject_readme, (args.out / "tables_readme.md").read_text())
     print(f"report written to {args.out} (tables.md, results.json, figures/)")
