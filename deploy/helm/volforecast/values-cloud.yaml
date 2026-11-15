@@ -17,6 +17,11 @@ externalSecret:
     - secretKey: AWS_SECRET_ACCESS_KEY
       remoteRef: {key: volforecast/prod, property: s3_secret_access_key}
 
+# Behind the ingress every request arrives from the ingress pod: trust its X-Forwarded-For hop so
+# the per-client rate limit sees real client addresses (never set this without a proxy in front).
+extraConfig:
+  VOLF_API_TRUSTED_PROXY_HOPS: "1"
+
 api:
   replicas: 3
   resources:

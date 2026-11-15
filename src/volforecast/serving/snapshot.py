@@ -213,8 +213,9 @@ class SnapshotCache:
                 snap = build_snapshot(self.repo, self.api)
             except Exception as exc:
                 self.healthy = False
-                self.last_error = f"{type(exc).__name__}: {exc}"[:300]
-                log.warning("snapshot_reload_failed", err=self.last_error)
+                # /readyz is unauthenticated: expose the error class only, details go to the log
+                self.last_error = f"store reload failed: {type(exc).__name__}"
+                log.warning("snapshot_reload_failed", err=repr(exc)[:500])
                 return False
             old = self.snapshot
             self.snapshot = snap  # atomic reference swap

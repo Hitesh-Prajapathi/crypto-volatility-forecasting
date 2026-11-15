@@ -298,7 +298,8 @@ def test_failed_reload_keeps_serving_the_last_snapshot(
         assert cache.refresh_sync() is False
         assert client.get("/readyz").status_code == 503  # DB not reachable
         assert client.get("/v1/forecast?asset=BTCUSDT&horizon=1").status_code == 200  # stale OK
-        assert "db down" in client.get("/readyz").json()["detail"]
+        detail = client.get("/readyz").json()["detail"]
+        assert detail == "store reload failed: RuntimeError"  # class only, no SQL / messages
     finally:
         cache.repo.models_summary = original
     assert cache.refresh_sync() is True
