@@ -7,6 +7,6 @@ appVersion: "0.1.0"
 kubeVersion: ">=1.27.0-0"
 keywords: [volatility, forecasting, fastapi, mlops]
 sources:
-  - https://github.com/OWNER/crypto-volatility-forecasting
+  - https://github.com/Hitesh-Prajapathi/crypto-volatility-forecasting
 maintainers:
   - name: volforecast maintainers

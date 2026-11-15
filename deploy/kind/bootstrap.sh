@@ -12,8 +12,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CLUSTER_NAME="${CLUSTER_NAME:-volforecast}"
 NAMESPACE="${NAMESPACE:-volforecast}"
 IMAGE_TAG="${IMAGE_TAG:-latest}" # must match image.tag in values-kind.yaml
-IMAGE_API="${IMAGE_API:-ghcr.io/OWNER/crypto-volatility-forecasting-api}"
-IMAGE_JOBS="${IMAGE_JOBS:-ghcr.io/OWNER/crypto-volatility-forecasting-jobs}"
+IMAGE_API="${IMAGE_API:-ghcr.io/hitesh-prajapathi/crypto-volatility-forecasting-api}"
+IMAGE_JOBS="${IMAGE_JOBS:-ghcr.io/hitesh-prajapathi/crypto-volatility-forecasting-jobs}"
 REPO_URL="${REPO_URL:-}"
 
 # Pinned chart versions.
@@ -113,7 +113,7 @@ fi
 
 log "Applying the Argo CD root application"
 if [[ -n "${REPO_URL}" ]]; then
-  sed "s#https://github.com/OWNER/crypto-volatility-forecasting.git#${REPO_URL}#g" \
+  sed "s#https://github.com/Hitesh-Prajapathi/crypto-volatility-forecasting.git#${REPO_URL}#g" \
     "${ROOT}/deploy/argocd/root-app.yaml" | kubectl apply -f -
 else
   echo "REPO_URL not set: applying with the placeholder repoURL (edit deploy/argocd/*.yaml first)"

@@ -1,7 +1,7 @@
 # App-of-apps root. Apply once (deploy/kind/bootstrap.sh does it); Argo CD then manages everything
 # under deploy/argocd/apps/ from git.
 #
-# PLACEHOLDER: replace https://github.com/OWNER/crypto-volatility-forecasting.git with your fork's
+# Forks: replace the repoURL below with your fork's
 # URL in this file and in apps/*.yaml (or run bootstrap.sh with REPO_URL=...).
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -13,7 +13,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/OWNER/crypto-volatility-forecasting.git
+    repoURL: https://github.com/Hitesh-Prajapathi/crypto-volatility-forecasting.git
     targetRevision: HEAD
     path: deploy/argocd/apps
     directory:

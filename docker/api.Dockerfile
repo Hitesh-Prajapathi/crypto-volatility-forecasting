@@ -31,7 +31,7 @@ FROM python:3.12-slim-bookworm AS runtime
 
 ARG VERSION=0.1.0
 ARG REVISION=unknown
-ARG SOURCE=https://github.com/OWNER/crypto-volatility-forecasting
+ARG SOURCE=https://github.com/Hitesh-Prajapathi/crypto-volatility-forecasting
 LABEL org.opencontainers.image.title="volforecast-api" \
       org.opencontainers.image.description="Realized-volatility forecast API" \
       org.opencontainers.image.source="${SOURCE}" \

@@ -1,5 +1,5 @@
 # The application chart. A rollout (or rollback) is a git commit that changes image.tag in
-# deploy/helm/volforecast/values-kind.yaml. PLACEHOLDER repoURL: see root-app.yaml.
+# deploy/helm/volforecast/values-kind.yaml. Forks: see root-app.yaml for repoURL.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -10,7 +10,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/OWNER/crypto-volatility-forecasting.git
+    repoURL: https://github.com/Hitesh-Prajapathi/crypto-volatility-forecasting.git
     targetRevision: HEAD
     path: deploy/helm/volforecast
     helm:

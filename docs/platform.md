@@ -10,7 +10,7 @@ Application code must satisfy them.
 | Endpoint | Contract |
 |----------|----------|
 | `GET /healthz` | Liveness. 200 as long as the process runs. No dependencies. |
-| `GET /readyz` | Readiness. 503 until ready (DB reachable, champion loaded, data fresh). |
+| `GET /readyz` | Readiness. 503 until the DB is reachable and at least one champion forecast is cached (no freshness gate: stale data is alerted on, not used to pull replicas). See [api.md](api.md). |
 | `GET /metrics` | Prometheus exposition. |
 | `GET /v1/forecast?asset=BTCUSDT&horizon=1` | Latest champion forecast. |
 
@@ -47,6 +47,10 @@ volume. `HOME=/tmp`, `MPLCONFIGDIR=/tmp/matplotlib`.
 | `volforecast_var_breaches_total` | `asset, level` (`level` is `99` or `0.99` for the 99% alert) |
 | `volforecast_data_last_bar_timestamp_seconds` | `asset` |
 | `volforecast_pipeline_last_success_timestamp_seconds` | `flow` |
+| `volforecast_pipeline_last_success_age_seconds` | `flow` |
+| `volforecast_forecast_age_seconds` | `asset, horizon` |
+| `volforecast_api_ready` | (none) |
+| `volforecast_api_snapshot_age_seconds` | (none) |
 | `volforecast_drift_share` | `asset` |
 
 `route` must be the route template (`/v1/forecast`), never the raw path, to bound cardinality.
@@ -105,7 +109,7 @@ metrics-server (`--kubelet-insecure-tls`), sealed-secrets, kube-prometheus-stack
 (pinned chart versions), builds and `kind load`s the images, creates `volforecast-secrets`
 (sealed when `kubeseal` exists, otherwise a dev Secret that is never committed) and applies
 `deploy/argocd/root-app.yaml`. The placeholder `repoURL`
-(`https://github.com/OWNER/crypto-volatility-forecasting.git`) in `deploy/argocd/**` must point at
+(`https://github.com/Hitesh-Prajapathi/crypto-volatility-forecasting.git`) in `deploy/argocd/**` must point at
 the fork Argo CD can read; `REPO_URL` rewrites it for the root app, but commit the real URL in
 `deploy/argocd/apps/*.yaml` so the app-of-apps resolves.
 

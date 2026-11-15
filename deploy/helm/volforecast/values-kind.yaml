@@ -2,9 +2,9 @@
 # Local images are loaded with `kind load docker-image` (see deploy/kind/bootstrap.sh).
 image:
   api:
-    repository: ghcr.io/OWNER/crypto-volatility-forecasting-api
+    repository: ghcr.io/hitesh-prajapathi/crypto-volatility-forecasting-api
   jobs:
-    repository: ghcr.io/OWNER/crypto-volatility-forecasting-jobs
+    repository: ghcr.io/hitesh-prajapathi/crypto-volatility-forecasting-jobs
   # Bumped automatically by the CD pipeline (gitops-bump job).
   tag: "latest"
   pullPolicy: IfNotPresent

@@ -8,10 +8,10 @@ fullnameOverride: ""
 image:
   api:
     # -- API image repository (built from docker/api.Dockerfile).
-    repository: ghcr.io/OWNER/crypto-volatility-forecasting-api
+    repository: ghcr.io/hitesh-prajapathi/crypto-volatility-forecasting-api
   jobs:
     # -- Jobs image repository (built from docker/jobs.Dockerfile).
-    repository: ghcr.io/OWNER/crypto-volatility-forecasting-jobs
+    repository: ghcr.io/hitesh-prajapathi/crypto-volatility-forecasting-jobs
   # -- Image tag shared by both images. Empty means `.Chart.AppVersion`.
   # The CD pipeline bumps this value in values-kind.yaml / values-cloud.yaml (GitOps).
   tag: ""
