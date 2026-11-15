@@ -8,7 +8,7 @@ xgboost>=2.0
 yfinance>=0.2.30
 arch>=6.0
 statsmodels>=0.14
-pmdarima>=2.0
+pmdarima>=2.1.1
 scipy>=1.11
 
 # Deep learning
