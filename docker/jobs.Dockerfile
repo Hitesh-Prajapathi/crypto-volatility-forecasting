@@ -2,7 +2,7 @@
 # volforecast batch-jobs image: `python -m volforecast.flows.<flow>`.
 #   docker build -f docker/jobs.Dockerfile -t volforecast-jobs:dev .
 # Flows that need extra runtime deps (prefect, mlflow, boto3) get them via a pyproject
-# extra: docker build --build-arg UV_EXTRAS="--extra mlops" ...
+# extra: docker build --build-arg UV_EXTRAS="--extra mlops --extra serve" ...
 
 # ---- uv binary (pinned) ------------------------------------------------------
 FROM ghcr.io/astral-sh/uv:0.9.25 AS uv
@@ -10,7 +10,7 @@ FROM ghcr.io/astral-sh/uv:0.9.25 AS uv
 # ---- builder -------------------------------------------------------------------
 FROM python:3.12-slim-bookworm AS builder
 COPY --from=uv /uv /uvx /bin/
-ARG UV_EXTRAS="--extra mlops"
+ARG UV_EXTRAS="--extra mlops --extra serve"
 ENV UV_LINK_MODE=copy \
     UV_PYTHON_DOWNLOADS=never \
     UV_PROJECT_ENVIRONMENT=/opt/venv

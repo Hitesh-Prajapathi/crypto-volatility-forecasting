@@ -274,10 +274,9 @@ noisy; they show the pipeline works end to end, not that the model beats HAR. Th
   path (`postgresql+psycopg://`) has its own upsert branch in `forecast_store/repository.py` that
   has not been run here.
 * **Jobs image extras.** The flows import `sqlalchemy` and `prometheus_client`, which pyproject
-  lists under the `serve` extra, while `docker/jobs.Dockerfile` defaults to `UV_EXTRAS="--extra
-  mlops"` (mlflow, prefect, boto3). Build the jobs image with
-  `--build-arg UV_EXTRAS="--extra mlops --extra serve"` (or move those packages into the `mlops`
-  extra); otherwise the CronJobs fail on import.
+  lists under the `serve` extra, so `docker/jobs.Dockerfile` defaults to
+  `UV_EXTRAS="--extra mlops --extra serve"`. Overriding it with `--extra mlops` alone makes the
+  CronJobs fail on import.
 * **Schema changes** need manual `ALTER TABLE` (no Alembic yet).
 * **Drift thresholds were tuned on simulated i.i.d. data**, see section 5. With a reference that
   spans the whole history, a persistent volatility regime reads as drift (the demo flagged 67% of
