@@ -73,7 +73,7 @@ jobs:
           provenance: false # replaced by the signed attestation below
 
       - name: Trivy scan (fail on CRITICAL)
-        uses: aquasecurity/trivy-action@v0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         env:
           TRIVY_USERNAME: ${{ github.actor }}
           TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
@@ -83,6 +83,7 @@ jobs:
           exit-code: "1"
           ignore-unfixed: true
           scanners: vuln
+          version: v0.76.1 # older releases were removed from GitHub; keep this pinned to an existing tag
 
       - name: SBOM (SPDX)
         uses: anchore/sbom-action@v0
