@@ -19,19 +19,28 @@ mean-based and RV-driven, while the typical squared return is much smaller). Onl
 rescales for this, because it uses the empirical quantile of z directly. The normal and the
 unit-variance Student-t (nu fitted on z, but variance fixed at 1) cannot, so they can be
 systematically too conservative, or too liberal for forecasts with var(z) > 1 (e.g. EWMA).
+
+Scale calibration
+-----------------
+``dist="normal_cal"`` and ``"t_cal"`` correct that scale mismatch parametrically: the forecast
+variance is multiplied by ``c_t = mean(z_s^2)`` over the same strictly-past residuals
+(``s < t``, expanding window, zero-mean returns as elsewhere in this module), i.e. the
+distribution is applied to ``ret_{t+1} / sqrt(c_t f_t)``. For ``t_cal`` the degrees of freedom
+are fitted on the rescaled residuals ``z_s / sqrt(mean(z_{<=i}^2))`` so that the fitted
+unit-variance t is consistent with the scale it is applied at. Until ``min_resid`` residuals
+exist the plain normal is used (``dist_used == "normal"``, ``c_t = 1``).
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
 
 from volforecast.contracts import COL_RET
 from volforecast.evaluation.var_backtest import (
-    Dist,
     acerbi_szekely_z2,
     basel_traffic_light,
     christoffersen_cc,
@@ -44,6 +53,11 @@ from volforecast.evaluation.var_backtest import (
 from volforecast.logging import get_logger
 
 log = get_logger(__name__)
+
+#: ``normal_cal`` / ``t_cal`` are ``normal`` / ``t`` with the variance scaled by the expanding
+#: estimate of E[z^2] from origins < t (see the module docstring).
+RiskDist = Literal["normal", "t", "fhs", "normal_cal", "t_cal"]
+CALIBRATED: frozenset[str] = frozenset({"normal_cal", "t_cal"})
 
 VAR_COLUMNS: tuple[str, ...] = (
     "asset",
@@ -59,7 +73,7 @@ VAR_COLUMNS: tuple[str, ...] = (
     "es",  # positive loss magnitude, same alpha as VaR
     "hit",
     "n_resid",  # number of standardized residuals available at the origin
-    "nu",  # fitted t degrees of freedom (NaN unless dist_used == "t")
+    "nu",  # fitted t degrees of freedom (NaN unless dist_used is "t" / "t_cal")
 )
 
 
@@ -78,14 +92,19 @@ def _origin_frame(
     return wide.where(valid_f), ret_next
 
 
-def _t_params(z: np.ndarray, first: int, nu_refit_every: int) -> np.ndarray:
+def _t_params(
+    z: np.ndarray, first: int, nu_refit_every: int, standardize: bool = False
+) -> np.ndarray:
     """nu estimate per row: refit on z[:i] every ``nu_refit_every`` rows from row ``first``."""
     n = z.size
     nu = np.full(n, np.nan)
     current = np.nan
     for i in range(first, n):
         if (i - first) % nu_refit_every == 0:
-            current = fit_student_t_nu(z[:i])
+            past = z[:i]
+            if standardize:
+                past = past / np.sqrt(np.mean(past**2))
+            current = fit_student_t_nu(past)
         nu[i] = current
     return nu
 
@@ -94,23 +113,34 @@ def _model_rows(
     z: np.ndarray,
     f: np.ndarray,
     alpha: float,
-    dist: Dist,
+    dist: RiskDist,
     min_resid: int,
     nu_refit_every: int,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Standardized quantile / ES per row, plus the dist used and nu, for one model."""
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Standardized quantile / ES per row, dist used, nu and variance scale, for one model.
+
+    The scale is 1 except for the calibrated distributions, where row ``i`` uses
+    ``mean(z[:i] ** 2)`` (residuals of origins strictly before row ``i``).
+    """
     n = f.size
     q = np.empty(n)
     es_std = np.empty(n)
     used = np.full(n, "normal", dtype=object)
     nu = np.full(n, np.nan)
+    scale = np.ones(n)
     q0 = standardized_quantile(alpha, "normal")
     e0 = standardized_es(alpha, "normal")
     q[:], es_std[:] = q0, e0
     if dist != "normal" and n > min_resid:
         first = min_resid
-        if dist == "t":
-            nu = _t_params(z, first, nu_refit_every)
+        cal = dist in CALIBRATED
+        base = "t" if dist in ("t", "t_cal") else dist
+        if cal:
+            # c_i = mean(z[:i]^2): expanding second moment of strictly past residuals
+            c = np.cumsum(z**2)[first - 1 : n - 1] / np.arange(first, n)
+            scale[first:] = c
+        if base == "t":
+            nu = _t_params(z, first, nu_refit_every, standardize=cal)
             cache: dict[float, tuple[float, float]] = {}
             for i in range(first, n):
                 key = float(nu[i])
@@ -120,22 +150,24 @@ def _model_rows(
                         standardized_es(alpha, "t", nu=key),
                     )
                 q[i], es_std[i] = cache[key]
-                used[i] = "t"
-        else:
+                used[i] = dist
+        elif base == "fhs":
             for i in range(first, n):
                 past = z[:i]  # residuals of origins strictly before row i
                 # same as standardized_quantile/_es(dist="fhs"), minus its per-call tail warning
                 q[i] = np.quantile(past, alpha)
                 es_std[i] = -past[past <= q[i]].mean()
                 used[i] = "fhs"
-    return q, es_std, used, nu
+        else:  # normal_cal: q, es stay at the normal values, only the scale differs
+            used[first:] = dist
+    return q, es_std, used, nu, scale
 
 
 def build_var_forecasts(
     forecasts: pd.DataFrame,
     panels: Mapping[str, pd.DataFrame],
     alphas: Sequence[float] = (0.05, 0.01),
-    dists: Sequence[Dist] = ("normal", "t", "fhs"),
+    dists: Sequence[RiskDist] = ("normal", "t", "fhs"),
     min_resid: int = 250,
     nu_refit_every: int = 20,
     align: bool = True,
@@ -169,9 +201,12 @@ def build_var_forecasts(
             sd = np.sqrt(f)
             for dist in dists:
                 for alpha in alphas:
-                    q, es_std, used, nu = _model_rows(z, f, alpha, dist, min_resid, nu_refit_every)
-                    var = -(q * sd)
-                    es = es_std * sd
+                    q, es_std, used, nu, scale = _model_rows(
+                        z, f, alpha, dist, min_resid, nu_refit_every
+                    )
+                    sd_eff = sd * np.sqrt(scale)
+                    var = -(q * sd_eff)
+                    es = es_std * sd_eff
                     frames.append(
                         pd.DataFrame(
                             {

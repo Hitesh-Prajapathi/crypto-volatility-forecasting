@@ -21,6 +21,8 @@ class ModelConfig(BaseModel):
     refit_every: int = Field(default=1, ge=1)
     params: dict[str, Any] = Field(default_factory=dict)
     version: str = "dev"
+    #: build the model once and re-``fit`` the same instance at every refit (stateful models)
+    reuse_instance: bool = False
 
     @field_validator("name")
     @classmethod
@@ -30,7 +32,7 @@ class ModelConfig(BaseModel):
         return v
 
 
-DistName = Literal["normal", "t", "fhs"]
+DistName = Literal["normal", "t", "fhs", "normal_cal", "t_cal"]
 DEFAULT_DISTS: tuple[DistName, ...] = ("normal", "t", "fhs")
 
 

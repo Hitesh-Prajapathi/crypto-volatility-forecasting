@@ -55,3 +55,8 @@ mlruns/
 
 # Claude Code local worktrees/settings
 .claude/
+
+# Local secrets
+.env
+.env.*
+!.env.example

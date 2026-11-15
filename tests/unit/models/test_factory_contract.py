@@ -22,9 +22,15 @@ EXPECTED = {
     "gjr_garch",
     "har",
     "log_har",
+    "har_dow",
+    "log_har_dow",
     "har_cj",
     "shar",
     "harq",
+    "lgbm",
+    "xgb",
+    "ens_eq",
+    "ens_inv",
 }
 
 

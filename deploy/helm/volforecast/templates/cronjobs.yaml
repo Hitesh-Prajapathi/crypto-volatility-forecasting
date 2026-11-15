@@ -1,0 +1,67 @@
+{{- range .Values.cronJobs }}
+{{- $j := merge (dict) . $.Values.cronJobDefaults }}
+{{- $sa := include "volforecast.serviceAccountName" $ }}
+{{- $token := false }}
+{{- if and $.Values.rbac.retrainCanCreateJobs (eq .flow "retrain") }}
+{{- $sa = include "volforecast.retrainServiceAccountName" $ }}
+{{- $token = true }}
+{{- end }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "volforecast.fullname" $ }}-{{ .name }}
+  labels:
+    {{- include "volforecast.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: job
+    volforecast/flow: {{ .flow }}
+spec:
+  schedule: {{ .schedule | quote }}
+  timeZone: {{ $j.timeZone | quote }}
+  concurrencyPolicy: {{ $j.concurrencyPolicy }}
+  startingDeadlineSeconds: {{ $j.startingDeadlineSeconds }}
+  successfulJobsHistoryLimit: {{ $j.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ $j.failedJobsHistoryLimit }}
+  suspend: {{ $j.suspend }}
+  jobTemplate:
+    spec:
+      backoffLimit: {{ $j.backoffLimit }}
+      activeDeadlineSeconds: {{ $j.activeDeadlineSeconds }}
+      ttlSecondsAfterFinished: {{ $j.ttlSecondsAfterFinished }}
+      template:
+        metadata:
+          annotations:
+            checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") $ | sha256sum }}
+          labels:
+            {{- include "volforecast.labels" $ | nindent 12 }}
+            app.kubernetes.io/component: job
+            volforecast/flow: {{ .flow }}
+        spec:
+          restartPolicy: Never
+          serviceAccountName: {{ $sa }}
+          automountServiceAccountToken: {{ $token }}
+          {{- with $.Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- toYaml $.Values.podSecurityContext | nindent 12 }}
+          containers:
+            - name: {{ .flow }}
+              image: {{ include "volforecast.image" (dict "repo" $.Values.image.jobs.repository "root" $) | quote }}
+              imagePullPolicy: {{ $.Values.image.pullPolicy }}
+              command: ["python", "-m", "volforecast.flows.{{ .flow }}"]
+              securityContext:
+                {{- toYaml $.Values.securityContext | nindent 16 }}
+              envFrom:
+                - configMapRef:
+                    name: {{ include "volforecast.configMapName" $ }}
+                - secretRef:
+                    name: {{ include "volforecast.secretName" $ }}
+              resources:
+                {{- toYaml $j.resources | nindent 16 }}
+              volumeMounts:
+                {{- include "volforecast.volumeMounts" $ | nindent 16 }}
+          volumes:
+            {{- include "volforecast.volumes" $ | nindent 12 }}
+---
+{{- end }}

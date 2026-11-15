@@ -1,0 +1,234 @@
+# Default values for the volforecast chart. Environment overlays: values-kind.yaml, values-cloud.yaml.
+
+# -- Override the chart name used in resource names / labels.
+nameOverride: ""
+# -- Override the full release-qualified resource name prefix.
+fullnameOverride: ""
+
+image:
+  api:
+    # -- API image repository (built from docker/api.Dockerfile).
+    repository: ghcr.io/OWNER/crypto-volatility-forecasting-api
+  jobs:
+    # -- Jobs image repository (built from docker/jobs.Dockerfile).
+    repository: ghcr.io/OWNER/crypto-volatility-forecasting-jobs
+  # -- Image tag shared by both images. Empty means `.Chart.AppVersion`.
+  # The CD pipeline bumps this value in values-kind.yaml / values-cloud.yaml (GitOps).
+  tag: ""
+  # -- Image pull policy.
+  pullPolicy: IfNotPresent
+
+# -- Names of imagePullSecrets for private registries.
+imagePullSecrets: []
+
+serviceAccount:
+  # -- Create the ServiceAccount used by the API and (non-retrain) CronJobs.
+  create: true
+  # -- Existing/explicit ServiceAccount name (default: release fullname).
+  name: ""
+  # -- Annotations (e.g. IRSA / workload identity).
+  annotations: {}
+
+rbac:
+  # -- Create a dedicated ServiceAccount + Role that lets ONLY the retrain CronJob create
+  # batch Jobs (for drift-triggered retraining). Off by default: least privilege.
+  retrainCanCreateJobs: false
+
+# -- Non-secret application configuration rendered into the ConfigMap (envFrom).
+config:
+  VOLF_DATA_DIR: /data
+  VOLF_LOG_JSON: "true"
+  MLFLOW_TRACKING_URI: http://mlflow:5000
+  MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+  PREFECT_API_URL: http://prefect:4200/api
+  WEB_CONCURRENCY: "2"
+
+# -- Extra non-secret environment variables merged into `config`.
+extraConfig: {}
+
+secrets:
+  # -- Name of a pre-existing Secret (SealedSecret / ExternalSecret output) holding
+  # VOLF_DATABASE_URL, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY. Preferred.
+  existingSecret: ""
+  # -- DEV ONLY: render a Secret from `secrets.dev.*`. Never enable this with real credentials in git.
+  create: false
+  dev:
+    databaseUrl: ""
+    awsAccessKeyId: ""
+    awsSecretAccessKey: ""
+
+externalSecret:
+  # -- Render an external-secrets.io ExternalSecret that produces `<fullname>-secrets`.
+  enabled: false
+  apiVersion: external-secrets.io/v1beta1
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: ""
+  # -- Map of Secret key -> remote reference. Keys must be the three listed above.
+  data: []
+  # - secretKey: VOLF_DATABASE_URL
+  #   remoteRef: {key: volforecast/prod, property: database_url}
+
+# -- Persistent or ephemeral data directory (VOLF_DATA_DIR) shared by API and CronJobs.
+dataVolume:
+  # -- `emptyDir` or `pvc`. With `pvc` and several API replicas use a ReadWriteMany class.
+  type: emptyDir
+  # -- emptyDir size limit.
+  sizeLimit: 2Gi
+  # -- PVC size (type=pvc).
+  size: 5Gi
+  storageClassName: ""
+  accessModes: [ReadWriteOnce]
+  # -- Use an already existing claim instead of creating one.
+  existingClaim: ""
+
+api:
+  # -- Replicas when the HPA is disabled (HPA owns replicas otherwise).
+  replicas: 2
+  port: 8000
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: "1", memory: 1Gi}
+  podAnnotations: {}
+  podLabels: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  # -- Seconds a pod gets to drain in-flight requests on shutdown.
+  terminationGracePeriodSeconds: 30
+  probes:
+    startup: {path: /healthz, periodSeconds: 5, failureThreshold: 30}
+    readiness: {path: /readyz, periodSeconds: 10, timeoutSeconds: 3, failureThreshold: 3}
+    liveness: {path: /healthz, periodSeconds: 20, timeoutSeconds: 3, failureThreshold: 3}
+  strategy:
+    maxUnavailable: 0
+    maxSurge: 1
+
+# -- Topology spread (labelSelector is injected automatically).
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile: {type: RuntimeDefault}
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 10001
+  capabilities: {drop: [ALL]}
+  seccompProfile: {type: RuntimeDefault}
+
+service:
+  type: ClusterIP
+  port: 80
+  # -- NodePort (only when type=NodePort).
+  nodePort: null
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: nginx
+  annotations: {}
+  # -- Adds `cert-manager.io/cluster-issuer: <value>` when set (TLS via cert-manager).
+  clusterIssuer: ""
+  hosts:
+    - host: volforecast.example.com
+      paths:
+        - {path: /, pathType: Prefix}
+  # -- TLS blocks, e.g. [{secretName: volforecast-tls, hosts: [volforecast.example.com]}]
+  tls: []
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 8
+  targetCPUUtilizationPercentage: 60
+  # -- Optional memory target (percent); unset by default.
+  targetMemoryUtilizationPercentage: null
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - {type: Percent, value: 50, periodSeconds: 60}
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - {type: Percent, value: 100, periodSeconds: 30}
+        - {type: Pods, value: 2, periodSeconds: 30}
+      selectPolicy: Max
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+networkPolicy:
+  enabled: true
+  # -- Also render a namespace-wide default-deny-ingress policy.
+  defaultDenyIngress: true
+  # -- Namespaces allowed to reach the API on its port.
+  ingressNamespaces: [ingress-nginx, monitoring]
+  # -- Namespace holding cluster DNS.
+  dnsNamespace: kube-system
+  # -- In-cluster backends reachable by API and jobs (egress). Pods matched by label in `namespace`
+  # (default: release namespace).
+  backends:
+    - {name: postgres, port: 5432, podLabels: {app.kubernetes.io/name: postgresql}}
+    - {name: mlflow, port: 5000, podLabels: {app.kubernetes.io/name: mlflow}}
+    - {name: minio, port: 9000, podLabels: {app.kubernetes.io/name: minio}}
+    - {name: prefect, port: 4200, podLabels: {app.kubernetes.io/name: prefect}}
+  # -- Jobs additionally need the public internet (Binance REST/S3) on 443.
+  jobsEgress443: true
+
+# -- Defaults applied to every entry of `cronJobs` (entries override per key).
+cronJobDefaults:
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600
+  backoffLimit: 2
+  activeDeadlineSeconds: 3600
+  ttlSecondsAfterFinished: 86400
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  suspend: false
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {cpu: "2", memory: 2Gi}
+
+# -- Scheduled flows: `python -m volforecast.flows.<flow>`. Forecast runs 15 min after ingest so
+# it sees the finished day; chain them in one entry via `flow` if you prefer a single Job.
+cronJobs:
+  - {name: ingest, flow: ingest, schedule: "20 0 * * *", activeDeadlineSeconds: 1800}
+  - {name: forecast, flow: forecast, schedule: "35 0 * * *", activeDeadlineSeconds: 1800}
+  - {name: evaluate, flow: evaluate, schedule: "0 1 * * *", activeDeadlineSeconds: 1800}
+  - {name: retrain, flow: retrain, schedule: "0 2 * * 0", activeDeadlineSeconds: 7200,
+     resources: {requests: {cpu: "1", memory: 2Gi}, limits: {cpu: "4", memory: 6Gi}}}
+
+monitoring:
+  # -- Render ServiceMonitor + PrometheusRule (needs the prometheus-operator CRDs).
+  enabled: false
+  serviceMonitor:
+    interval: 15s
+    scrapeTimeout: 10s
+    # -- Labels so kube-prometheus-stack selects it.
+    labels: {release: kube-prometheus-stack}
+  prometheusRule:
+    labels: {release: kube-prometheus-stack}
+    # -- Override the alert thresholds.
+    dataStaleSeconds: 93600
+    apiErrorRatio: 0.01
+    apiLatencyP95Seconds: 0.2
+
+test:
+  # -- Render the `helm test` hook pod (curls /healthz via the Service).
+  enabled: true

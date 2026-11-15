@@ -46,6 +46,9 @@ class _LinearVolModel(BaseVolModel):
     feature_names: tuple[str, ...] = ()
     _log_target = False
     _insanity_filter = False
+    floor_frac: float = 0.0  # only meaningful for level models (see `_LevelModel`)
+    #: horizon of the current fit, for regressors that depend on it (set by `_fit`)
+    _design_h: int | None = None
 
     def __init__(self, estimator: str = "ols", drop_incomplete_targets: bool = True) -> None:
         super().__init__(drop_incomplete_targets)
@@ -62,6 +65,8 @@ class _LinearVolModel(BaseVolModel):
         self._y_hi = float("nan")
         self._y_mean = float("nan")
         self._n_insanity = 0
+        self._n_below_floor = 0
+        self._n_above_max = 0
         self._n_stale = 0
 
     # ------------------------------------------------------ subclass specification
@@ -132,10 +137,33 @@ class _LinearVolModel(BaseVolModel):
             return float("nan")  # _finalize -> training mean
         if self._log_target:
             return math.exp(lp + 0.5 * self._sigma2)
-        if self._insanity_filter and not (
-            math.isfinite(lp) and lp > 0.0 and self._y_lo <= lp <= self._y_hi
-        ):
+        if self._insanity_filter:
+            return self._sanity_check(lp, panel, h)
+        return lp
+
+    def _floor(self, panel: pd.DataFrame, h: int) -> float:
+        """Lower bound of an acceptable level forecast at the origin of `panel`.
+
+        ``max(train_min, floor_frac * h * mean(RV over the last 22 days))``: a level HAR
+        forecast far below the recent run-rate of realized variance is an extrapolation
+        failure (a negative loading times an extreme regressor), not information.
+        """
+        floor = self._y_lo
+        if self.floor_frac > 0.0:
+            recent = float(np.nanmean(panel[COL_RV].to_numpy(dtype=float)[-_WM["m"] :]))
+            if math.isfinite(recent):
+                floor = max(floor, self.floor_frac * h * recent)
+        return floor
+
+    def _sanity_check(self, lp: float, panel: pd.DataFrame, h: int) -> float:
+        """Insanity filter (BPQ 2016, with a trailing-RV floor): replace by the training mean."""
+        if not math.isfinite(lp) or lp <= 0.0 or lp < self._floor(panel, h):
             self._n_insanity += 1
+            self._n_below_floor += 1
+            return self._y_mean
+        if lp > self._y_hi:
+            self._n_insanity += 1
+            self._n_above_max += 1
             return self._y_mean
         return lp
 
@@ -157,13 +185,36 @@ class _LinearVolModel(BaseVolModel):
             "train_target_min": self._y_lo if math.isfinite(self._y_lo) else None,
             "train_target_max": self._y_hi if math.isfinite(self._y_hi) else None,
             "train_target_mean": self._y_mean if math.isfinite(self._y_mean) else None,
+            "floor_frac": self.floor_frac,
             "n_insanity_filtered": self._n_insanity,
+            "n_insanity_below_floor": self._n_below_floor,
+            "n_insanity_above_max": self._n_above_max,
             "n_stale_inputs": self._n_stale,
         }
 
 
 class _LevelModel(_LinearVolModel):
+    """Level (non-log) HAR variants: forecasts pass through the insanity filter.
+
+    A forecast is replaced by the training-target mean when it is non-finite or non-positive,
+    below ``max(train_min, floor_frac * h * mean(RV, last 22 days))``, or above the training
+    maximum. ``floor_frac=0`` reduces the floor to the training minimum (the original filter).
+    Replacements are counted in ``get_params()["n_insanity_filtered"]`` (split into
+    ``n_insanity_below_floor`` / ``n_insanity_above_max``) and reset on every refit.
+    """
+
     _insanity_filter = True
+
+    def __init__(
+        self,
+        estimator: str = "ols",
+        drop_incomplete_targets: bool = True,
+        floor_frac: float = 0.2,
+    ) -> None:
+        super().__init__(estimator, drop_incomplete_targets)
+        if not math.isfinite(floor_frac) or floor_frac < 0.0:
+            raise ValueError("floor_frac must be a finite number >= 0")
+        self.floor_frac = float(floor_frac)
 
 
 class HAR(_LevelModel):
@@ -179,7 +230,7 @@ class HAR(_LevelModel):
     """
 
     name = "har"
-    feature_names = ("rv_d", "rv_w", "rv_m")
+    feature_names: tuple[str, ...] = ("rv_d", "rv_w", "rv_m")
     required_columns = (COL_RV,)
 
     def _raw_design(self, panel: pd.DataFrame) -> FloatArray:
@@ -201,7 +252,7 @@ class LogHAR(_LinearVolModel):
     """
 
     name = "log_har"
-    feature_names = ("log_rv_d", "log_rv_w", "log_rv_m")
+    feature_names: tuple[str, ...] = ("log_rv_d", "log_rv_w", "log_rv_m")
     required_columns = (COL_RV,)
     _log_target = True
 
@@ -213,6 +264,76 @@ class LogHAR(_LinearVolModel):
         with np.errstate(divide="ignore", invalid="ignore"):
             d = np.log(panel[COL_RV].to_numpy(dtype=float))
         return np.column_stack([d, a["log_rv_w"].to_numpy(), a["log_rv_m"].to_numpy()])
+
+
+def weekend_days_ahead(index: pd.DatetimeIndex, h: int) -> FloatArray:
+    """Number of Saturday/Sunday days among ``t+1..t+h`` for every date ``t`` in `index`.
+
+    A deterministic calendar fact known at the origin (it uses no data beyond the date itself).
+    For ``h=1`` it is the 0/1 indicator that the target day is a weekend day.
+    """
+    dow = np.asarray(index.day_of_week)  # Monday=0 ... Sunday=6
+    count = np.zeros(len(dow), dtype=float)
+    for k in range(1, h + 1):
+        count += ((dow + k) % 7) >= 5
+    return count
+
+
+class _WeekendRegressor(_LinearVolModel):
+    """Mixin: appends the target-weekend count ``wknd`` as the last regressor.
+
+    Crypto trades 365 days a year but weekend RV is markedly lower than weekday RV (BTC: about
+    0.53x), which plain HAR models ignore. ``wknd`` for origin t counts the Saturdays/Sundays in
+    the target window ``t+1..t+h`` (see `weekend_days_ahead`).
+    """
+
+    def _fit(self, panel: pd.DataFrame, h: int, y: FloatArray, ok: BoolArray) -> None:
+        self._design_h = h
+        super()._fit(panel, h, y, ok)
+
+    def _raw_design(self, panel: pd.DataFrame) -> FloatArray:
+        if self._design_h is None:
+            raise ModelInputError(f"{self.name}: horizon unknown (fit() first)")
+        base = super()._raw_design(panel)
+        wknd = weekend_days_ahead(pd.DatetimeIndex(panel.index), self._design_h)
+        return np.column_stack([base, wknd])
+
+    def _current_regressors(self, panel: pd.DataFrame) -> FloatArray | None:
+        row = super()._current_regressors(panel)
+        if row is None:
+            return None
+        # If the lagged regressors were stale, `row` comes from an earlier date: the calendar
+        # regressor must still describe the CURRENT origin's target window.
+        assert self._design_h is not None
+        row = row.copy()
+        row[-1] = weekend_days_ahead(pd.DatetimeIndex(panel.index[-1:]), self._design_h)[0]
+        return row
+
+
+class HARDow(_WeekendRegressor, HAR):
+    r"""Calendar-aware level HAR: HAR-RV plus the target-weekend count.
+
+    .. math::
+        \sum_{k=1}^h RV_{t+k} = \beta_0 + \beta_d RV_t + \beta_w \overline{RV}_{t-4:t}
+        + \beta_m \overline{RV}_{t-21:t} + \beta_{wk}\, \mathrm{wknd}_{t,h} + \varepsilon
+
+    ``wknd_{t,h}`` = number of Saturday/Sunday days in ``t+1..t+h``. Uses the level-model
+    insanity filter and trailing-RV floor of `HAR`.
+    """
+
+    name = "har_dow"
+    feature_names = (*HAR.feature_names, "wknd")
+
+
+class LogHARDow(_WeekendRegressor, LogHAR):
+    r"""Calendar-aware log-HAR: log-HAR plus the target-weekend count.
+
+    Same specification and log-normal bias correction as `LogHAR`, with the extra regressor
+    ``wknd`` (Saturday/Sunday days in ``t+1..t+h``, known at the origin).
+    """
+
+    name = "log_har_dow"
+    feature_names = (*LogHAR.feature_names, "wknd")
 
 
 class HARCJ(_LevelModel):
