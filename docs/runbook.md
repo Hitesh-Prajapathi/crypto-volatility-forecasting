@@ -95,7 +95,7 @@ once `registry/` lands). Serving reads only `models:/<name>@champion`.
   ```python
   from mlflow import MlflowClient
 
-  c = MlflowClient()                       # needs MLFLOW_TRACKING_URI
+  c = MlflowClient()  # needs MLFLOW_TRACKING_URI
   name = "volforecast-btc-h1"
   print(c.get_model_version_by_alias(name, "champion").version)
   c.set_registered_model_alias(name, "champion", "<previous_version>")
