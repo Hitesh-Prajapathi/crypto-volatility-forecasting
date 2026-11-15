@@ -1,0 +1,44 @@
+# Production MLOps settings (volforecast.registry.config.ProductionConfig).
+# Schedules live in Kubernetes CronJobs (ADR-0007); this file only holds *what* the flows do.
+assets: [BTCUSDT, ETHUSDT, SOLUSDT]
+horizons: [1, 5]
+fallback_model: log_har   # fit on the full history when no @champion exists
+benchmark: har            # stored as model_name "har_benchmark" next to every forecast
+
+retrain:
+  candidates:
+    - {name: log_har, refit_every: 5}
+    - {name: harq, refit_every: 5}
+    - {name: har, refit_every: 5}
+  # Optional candidates: any factory model whose name starts with one of these prefixes is
+  # added at runtime if present (they are not imported statically). Failures are skipped.
+  optional_prefixes: [lgbm, xgb, ens_]
+  optional_refit_every: 20
+  wf_days: 650      # 365 gate window + 250 FHS residual burn-in + margin
+  min_train: 365
+  n_jobs: 1
+
+promotion:
+  window: 365
+  epsilon: 0.0          # (b) QLIKE ratio vs HAR must be < 1 - epsilon
+  dm_alpha: 0.10        # (a) challenger "significantly worse" than champion when DM p <= 0.10
+  var_dist: fhs         # (c) 99% VaR distribution that is backtested
+  var_alpha: 0.01
+  significance: 0.05    # (c) Kupiec / Christoffersen CC pass when p > 0.05
+  min_resid: 250
+  sanity_factor: 10
+  min_eval_obs: 60
+  allow_benchmark_champion: true
+  benchmark: har
+
+monitoring:
+  rolling_window: 30
+  ratio_threshold: 1.0
+  ratio_consecutive_days: 10
+  breach_window: 250
+  breach_coverage: 0.99
+  drift_window: 30
+  psi_threshold: 0.25        # conventional "significant shift" level
+  wasserstein_threshold: 0.5 # W / std(reference): half a standard deviation
+  psi_bins: 5                # ~6 current obs per bin for a 30-day window
+  drift_share_trigger: 0.5   # retrain requested when >= half of the features drifted
