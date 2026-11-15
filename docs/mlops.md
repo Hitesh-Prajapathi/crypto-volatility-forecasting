@@ -255,6 +255,11 @@ noisy; they show the pipeline works end to end, not that the model beats HAR. Th
 
 ## 8. Known limitations
 
+* **`ens_inv` is not a production candidate.** Its weights come from out-of-sample history
+  accumulated during the walk-forward; the artifact logged after the final `fit` starts with an
+  empty history and would serve equal weights (identical to `ens_eq`) while the promotion gate
+  scored the weighted version. `configs/production.yaml` therefore lists `ens_eq` but not
+  `ens_inv`; warm-starting the logged instance would lift this restriction.
 * **Nothing starts retrain automatically** after `evaluate` flags a trigger (section 5).
 * **Prefect has no worker, schedule or deployment.** Without `PREFECT_API_URL` each run starts an
   ephemeral local API (a few seconds of overhead, state under `~/.prefect`; with the read-only
