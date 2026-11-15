@@ -60,3 +60,8 @@ mlruns/
 .env
 .env.*
 !.env.example
+
+# Generated report outputs (tables.md is committed; regenerate with make report)
+/reports/figures/
+/reports/results.json
+/reports/tables_readme.md
