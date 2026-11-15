@@ -138,9 +138,12 @@ usual 0.2-0.25 cut-offs, so a stationary series was flagged on most features (84
 seeds had half or more of the features flagged at PSI > 0.2 / 10 bins). With B=5 the null mean is
 0.14. 0.25 is the conventional "significant shift" level. PSI alone is still noisy at n=30, so a
 practical-significance guard is added: half a reference standard deviation (Cohen's "medium"
-effect). Simulation (i.i.d. log-normal data, 400 days, 30-day window; `tests/unit/monitoring`):
-about 1% of features flagged on stationary data (1% of seeds had half or more flagged), versus 80%
-of features flagged for a +0.75 s.d. shift in log RV. The six features are all functions of the same
+effect). An ad hoc simulation (not committed; i.i.d. log-normal data, 400 days, 30-day window, 300
+seeds) gave about 1% of features flagged on stationary data (1% of seeds had half or more
+flagged), versus 80% of features flagged for a +0.75 s.d. shift in log RV. What is committed in
+`tests/unit/monitoring/test_drift.py` is weaker: over 40 stationary seeds the mean share flagged
+is < 0.1 and at most 10% of seeds flag half the features, a +1 s.d. shift flags at least half, and
+a 50x level shift flags every feature. The six features are all functions of the same
 intraday returns and are strongly correlated, so `drift_share` is effectively one noisy indicator,
 not six independent tests. These numbers come from simulated i.i.d. data; real series are
 autocorrelated, so false positives in persistent-volatility regimes will be higher (the synthetic
@@ -267,6 +270,14 @@ noisy; they show the pipeline works end to end, not that the model beats HAR. Th
 * **Single process per asset loop.** Assets and horizons are processed sequentially; the full
   `retrain` with the optional `lgbm`/`xgb`/`ens_*` candidates takes minutes per pair (see the
   demo for a measured duration).
+* **Only sqlite was exercised.** All tests and the demo ran against sqlite stores; the Postgres
+  path (`postgresql+psycopg://`) has its own upsert branch in `forecast_store/repository.py` that
+  has not been run here.
+* **Jobs image extras.** The flows import `sqlalchemy` and `prometheus_client`, which pyproject
+  lists under the `serve` extra, while `docker/jobs.Dockerfile` defaults to `UV_EXTRAS="--extra
+  mlops"` (mlflow, prefect, boto3). Build the jobs image with
+  `--build-arg UV_EXTRAS="--extra mlops --extra serve"` (or move those packages into the `mlops`
+  extra); otherwise the CronJobs fail on import.
 * **Schema changes** need manual `ALTER TABLE` (no Alembic yet).
 * **Drift thresholds were tuned on simulated i.i.d. data**, see section 5. With a reference that
   spans the whole history, a persistent volatility regime reads as drift (the demo flagged 67% of
