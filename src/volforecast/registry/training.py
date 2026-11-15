@@ -21,7 +21,7 @@ from volforecast.evaluation.losses import qlike
 from volforecast.evaluation.walkforward import ModelSpec, WalkForwardConfig, run_walkforward
 from volforecast.forecast_store.repository import ForecastRepository
 from volforecast.logging import get_logger
-from volforecast.models.factory import build_model, list_models
+from volforecast.models.factory import build_model, is_stateful_model, list_models
 from volforecast.pipeline.backtest import git_info
 from volforecast.registry.client import (
     CHALLENGER,
@@ -97,6 +97,8 @@ def walkforward_candidate(
         name=cand.name,
         builder=partial(build_model, cand.name, **cand.params),
         refit_every=cand.refit_every,
+        # stateful models (ens_inv) keep their OOS forecast history inside the instance
+        reuse_instance=is_stateful_model(cand.name),
     )
     fc, _ = run_walkforward(panel, spec, wf, h, asset, data_hash)
     return fc
