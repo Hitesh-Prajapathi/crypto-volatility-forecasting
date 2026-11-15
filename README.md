@@ -1,83 +1,49 @@
 # Crypto Volatility Forecasting
 
-Forecasting the **daily realized variance** of BTC, ETH and SOL from 5-minute Binance bars. Models are evaluated walk-forward against the HAR-RV benchmark using QLIKE loss, Diebold-Mariano tests, the Model Confidence Set and VaR backtests, and the system is shipped with MLflow, Prefect and Kubernetes. The repository is under active refinement (see the status below).
+[![CI](https://github.com/Hitesh-Prajapathi/crypto-volatility-forecasting/actions/workflows/ci.yml/badge.svg)](https://github.com/Hitesh-Prajapathi/crypto-volatility-forecasting/actions/workflows/ci.yml)
+![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
+![mypy strict](https://img.shields.io/badge/mypy-strict-blue)
 
-> **Notice: earlier results were retracted.** The first version of this project reported performance numbers that were invalid because of target leakage and other methodological defects. They have been removed. See [ADR-0002](docs/adr/0002-legacy-results-retracted.md) for the audit findings and evidence. The original code is preserved at git tag `v0-legacy` and in [`legacy/`](legacy/README.md).
+Forecasting the **daily realized variance** of BTC, ETH and SOL from 5-minute Binance bars, evaluated honestly and served from a production-style MLOps stack.
 
-## Architecture
+- **Research:** 16 models, from naive and GARCH through the HAR-RV family to LightGBM/XGBoost and ensembles. Each is evaluated in an expanding walk-forward over 1,900–2,100 out-of-sample days per asset. The tests are QLIKE, Diebold-Mariano (HLN-corrected), Mincer-Zarnowitz and the Model Confidence Set. The variance forecasts are turned into VaR/ES and backtested with Kupiec, Christoffersen, the Basel traffic light and Acerbi-Székely.
+- **Engineering:** a Binance data pipeline with checksum verification and schema validation, and leakage guards enforced by property tests. Model governance runs through MLflow, using aliases and a statistical promotion gate. Prefect runs the daily flows, with drift and performance monitoring, and a FastAPI service serves forecasts from a forecast store. Packaging covers Docker, Helm/Argo CD manifests, Prometheus/Grafana, and GitHub Actions CI/CD.
 
-```mermaid
-flowchart LR
-    A[Binance 5-min bars] --> B[Validate<br/>Pandera schemas]
-    B --> C[(Parquet + manifest<br/>content hashes)]
-    C --> D[Realized measures<br/>RV, BV, jumps]
-    D --> E[Walk-forward training<br/>and evaluation]
-    E --> F[MLflow registry<br/>@champion]
-    F --> G[Daily forecast job]
-    G --> H[(Postgres<br/>forecast store)]
-    H --> I[FastAPI]
-    I --> J[Dashboard]
-
-    P[Prefect flows] -.-> B
-    P -.-> E
-    P -.-> G
-    EV[Evidently drift] -.-> D
-    EV -.-> G
-    PG[Prometheus / Grafana] -.-> I
-    PG -.-> G
-    GH[GitHub Actions] -.-> F
-    AR[Argo CD] -.-> I
-    AR -.-> G
-```
-
-A forecast for day t+1 uses only data up to the end of UTC day t. Details: [docs/architecture.md](docs/architecture.md).
-
-## Quickstart
-
-Requires [uv](https://docs.astral.sh/uv/) and Python 3.12.
-
-```bash
-uv sync --all-extras      # or: make setup
-make test                 # fast tests (no network)
-make data                 # ingest 5-min bars (SYMBOL=BTCUSDT START=2017-08-17)
-make help                 # list all targets
-```
-
-## Repository layout
-
-```
-src/volforecast/   Package: data, features, models, evaluation, pipeline (backtest), registry, monitoring, flows, serving
-tests/             Unit, property and integration tests (leakage guards live here)
-configs/           Backtest configuration (configs/backtest.yaml)
-docs/              Architecture, execution plan, platform guide, runbook, SLOs, model card
-docs/adr/          Architecture decision records
-legacy/            Frozen v0 code, kept for transparency (not linted, not supported)
-notebooks/         Original exploratory notebook
-deploy/            Helm chart, kind config, Argo CD manifests, monitoring (dashboards, alerts)
-loadtest/          k6 load test
-docker/, compose.yaml   Container images and local stack
-.github/workflows/ CI and CD
-Makefile           Developer entry points
-```
-
-Docs: [architecture](docs/architecture.md), [platform guide](docs/platform.md), [runbook](docs/runbook.md), [SLOs](docs/slo.md), [model card](docs/model_card.md).
-
-## Roadmap and status
-
-The full plan is in [docs/execution_plan.md](docs/execution_plan.md).
-
-- [x] **M0** Repo foundation and honest baseline
-- [x] **M1** Intraday data and realized measures
-- [x] **M2** Baselines, walk-forward evaluation, statistical tests, report, regression gate
-- [ ] **M3** ML/DL challengers, ensemble, interpretation (in progress: GBM, ensemble)
-- [x] **M4** VaR / ES backtesting
-- [ ] **M5** MLOps: MLflow, Prefect, forecast store, drift monitoring (in progress)
-- [ ] **M6** Serving hardening and local stack (partial: images and compose done, real API pending)
-- [ ] **M7** CI/CD, Kubernetes, Helm, GitOps (manifests done: Helm, kind, Argo CD, CD workflow; not yet run on a cluster)
-- [ ] **M8** Observability, load testing, SRE docs (manifests done: dashboards, alerts, k6; runbook, SLOs and model card in `docs/`)
-- [ ] **M9** Presentation and live dashboard (pending)
+> **Earlier results were retracted.** The first version of this project reported numbers that were invalid: the target leaked into the features, there was no forward shift, and the scaler was fit on test data. The audit is in [ADR-0002](docs/adr/0002-legacy-results-retracted.md). The original code is kept at tag `v0-legacy` and in [`legacy/`](legacy/README.md).
 
 ## Results
+
+The headline numbers below are the full walk-forward from 2021-01-01 to 2026-11-12, on data through 2026-11-13. The models are refit on an expanding window with a 365-day minimum. The loss is QLIKE on variance; a ratio below 1 beats the benchmark. The p-values come from a one-sided HLN-corrected Diebold-Mariano test of "the model beats the benchmark". MCS is the 90% Model Confidence Set.
+
+**1-day ahead (h=1)**
+
+| model | BTC vs HAR | BTC vs log-HAR-DoW (p) | ETH vs HAR | ETH vs log-HAR-DoW (p) | SOL vs HAR | SOL vs log-HAR-DoW (p) |
+|---|---|---|---|---|---|---|
+| GARCH(1,1)-t | 1.081 | 1.335 | 1.118 | 1.456 | 0.966 | 1.372 |
+| log-HAR | 0.917 | 1.132 | 0.838 | 1.092 | 0.758 | 1.076 |
+| **log-HAR + weekend (log-HAR-DoW)** | 0.810 | — | 0.768 † | — | 0.704 † | — |
+| LightGBM | 0.740 | 0.913 (0.002) | 0.738 † | 0.962 (0.23) | 0.688 † | 0.977 (0.22) |
+| **XGBoost** | **0.717** † | **0.885 (0.0002)** | **0.710** † | 0.925 (0.045) | **0.684** † | 0.971 (0.16) |
+
+**5-day ahead (h=5)**
+
+| model | BTC vs HAR | BTC vs log-HAR-DoW (p) | ETH vs HAR | ETH vs log-HAR-DoW (p) | SOL vs HAR | SOL vs log-HAR-DoW (p) |
+|---|---|---|---|---|---|---|
+| log-HAR-DoW | 0.837 † | — | 0.774 † | — | 0.695 † | — |
+| XGBoost | 0.799 † | 0.955 (0.26) | 0.757 † | 0.979 (0.38) | 0.767 | 1.104 (0.997) |
+
+† in the 90% MCS. HAR itself is never in the MCS.
+
+**What the results say**
+
+1. Every serious model beats HAR, and XGBoost cuts 1-day QLIKE by about 28–32%.
+2. **Most of that gain is a calendar effect.** BTC's weekend realized variance is about half of its weekday level. Adding a weekend term to log-HAR captures much of the gain at 1-day, and at 5-day it is statistically indistinguishable from XGBoost or better. That's why log-HAR-DoW is reported as a second, fairer benchmark.
+3. Against that benchmark, XGBoost's edge is significant only at 1-day on BTC (p = 0.0002), and marginally on ETH (p = 0.045). At 5-day on SOL the linear model is better.
+4. **VaR:** the 99% 1-day VaR built with filtered historical simulation is close to nominal for XGBoost: 1.03% / 0.98% / 1.04% breaches on BTC / ETH / SOL. It passes Kupiec and Christoffersen, with a green Basel zone. Gaussian VaR on the same forecasts over-breaches on BTC and ETH (1.49% and 1.87%), because 5-minute realized variance is not on the same scale as close-to-close variance.
+
+<details>
+<summary>Full generated tables (all 16 models, by year, by volatility regime, VaR/ES at 1% and 5%)</summary>
+
 
 <!-- RESULTS:START -->
 # Out-of-sample results
@@ -216,12 +182,97 @@ Walk-forward, expanding window, first origin 2021-01-01, min_train 365; benchmar
 | ens_eq | 0.2526 | 0.762 | 0.000 | 1.097 | 0.996 | 4.242e-04 | 0.221 | 0.000 | no |
 | ens_inv | 0.2506 | 0.756 | 0.000 | 1.088 | 0.996 | 4.250e-04 | 0.219 | 0.000 | no |
 <!-- RESULTS:END -->
+</details>
+
+Regenerate everything with `make backtest && make report` (about 8 minutes on a laptop for all three assets). The full report is [reports/tables.md](reports/tables.md).
+
+## Architecture
+
+```mermaid
+flowchart LR
+    A[Binance Vision<br/>5-min klines] --> B[Checksum + Pandera<br/>validation]
+    B --> C[(Parquet store<br/>+ content-hash manifest)]
+    C --> D[Realized measures<br/>RV, BPV, jumps, RS±, RQ]
+    D --> E[Walk-forward<br/>training + evaluation]
+    E --> F[MLflow registry<br/>@champion / @challenger]
+    F --> G[Daily forecast flow]
+    G --> H[(Forecast store<br/>SQLAlchemy)]
+    H --> I[FastAPI /v1]
+
+    P[Prefect flows<br/>ingest · forecast · evaluate · retrain] -.-> B
+    P -.-> G
+    P -.-> E
+    M[Drift: PSI + Wasserstein<br/>Perf: QLIKE ratio, Basel zone] -.-> P
+    PG[Prometheus / Grafana] -.-> I
+```
+
+- **Information set:** a forecast for day *t+1* uses data only up to the end of UTC day *t*. Property tests check this by truncating the data and asserting the forecasts are bit-identical.
+- **Batch inference:** the API serves precomputed forecasts from the store and never runs a model per request ([ADR-0009](docs/adr/0009-batch-inference-forecast-store.md)).
+- **Promotion gate:** a challenger is promoted only if all of the following hold:
+  - its QLIKE is no worse than the champion's, and a DM test does not say it is significantly worse;
+  - it beats HAR;
+  - its 99% VaR passes Kupiec, Christoffersen and Basel green;
+  - its forecasts are finite and positive.
+
+More detail: [architecture](docs/architecture.md), [MLOps](docs/mlops.md), [API](docs/api.md), [platform](docs/platform.md).
+
+## Quickstart
+
+Requires [uv](https://docs.astral.sh/uv/) and Python 3.12.
+
+```bash
+uv sync --all-extras                                    # or: make setup
+make quality                                            # ruff + mypy --strict + tests
+make data SYMBOL=BTCUSDT START=2017-08-17               # download and validate 5-min bars
+make backtest && make report                            # walk-forward + reports/tables.md
+
+# daily cycle (defaults: sqlite forecast store and sqlite MLflow under artifacts/; see docs/mlops.md)
+uv run python -m volforecast.flows.retrain --help
+uv run python -m volforecast.flows.forecast --help
+uv run python -m volforecast.serving --port 8000        # then GET /v1/forecast?asset=BTCUSDT&horizon=1
+
+make up                                                 # full local stack via docker compose
+```
+
+## What's in the repo
+
+| Area | Where | Highlights |
+|---|---|---|
+| Data | `src/volforecast/data/` | Binance Vision downloads with CHECKSUM verification. Handles the 2025 ms→µs timestamp change. Snaps off-grid bars to the grid ([ADR-0003](docs/adr/0003-missing-bar-policy.md)). Pandera schemas, a hive-partitioned Parquet store with a manifest, and a Coinbase fallback. |
+| Features | `src/volforecast/features/` | RV, bipower variation, jumps, realized semivariances, realized quarticity, HAR aggregates and forward targets |
+| Models | `src/volforecast/models/` | naive, EWMA, GARCH/GJR-GARCH (t), HAR, log-HAR, HAR-CJ, SHAR, HARQ, HAR-DoW, LightGBM, XGBoost, equal and inverse-loss ensembles |
+| Evaluation | `src/volforecast/evaluation/` | Walk-forward engine. QLIKE/MSE, DM with the HLN correction, Mincer-Zarnowitz, MCS. VaR/ES with normal, t, calibrated and FHS distributions, backtested with Kupiec, Christoffersen, the Basel traffic light and Acerbi-Székely. |
+| MLOps | `registry/`, `flows/`, `monitoring/`, `forecast_store/` | MLflow aliases ([ADR-0006](docs/adr/0006-mlflow-aliases-over-stages.md)), the promotion gate, Prefect flows, PSI + Wasserstein drift, performance triggers and idempotent upserts |
+| Serving | `src/volforecast/serving/` | Snapshot cache with hot reload. Readiness gating, ETag/304, a token-bucket rate limit, a CORS allowlist, Prometheus metrics labelled by route template, and multi-worker graceful shutdown. |
+| Platform | `docker/`, `compose.yaml`, `deploy/`, `.github/workflows/` | Non-root images on a read-only root filesystem. A Helm chart with HPA, kind and Argo CD app-of-apps, Grafana dashboards and alert rules, k6 load tests, CI (lint, types, tests, security, Helm) and CD |
+| Tests | `tests/` | 566 tests: unit, property (leakage), integration (end-to-end daily cycle) and a golden-value regression gate |
+
+The design decisions are recorded as [ADRs](docs/adr/). The [runbook](docs/runbook.md), [SLOs](docs/slo.md) and [model card](docs/model_card.md) are in `docs/`.
+
+## Status
+
+**Done**
+- M0–M2: data, features, baselines, walk-forward evaluation, statistical tests and the report.
+- M3: GBMs and ensembles.
+- M4: VaR/ES.
+- M5: MLOps.
+- M6: the API and local stack.
+
+**Built and validated statically, not yet run on a cluster.** The Helm chart passes `helm lint` and kubeconform. The kind, Argo CD and CD workflows are written but haven't been deployed. k6 has only been run as a 10-second smoke test against a local server (p95 9.9 ms at 200 req/s); the full scenarios haven't been run.
+
+**Not done**
+- An LSTM challenger.
+- A cluster deployment with HPA measurements.
+- A live dashboard.
+
+The plan is in [docs/execution_plan.md](docs/execution_plan.md).
 
 ## Limitations
 
-- Volatility forecasts are statistical estimates and can be wrong, especially during regime changes and market stress.
-- Data comes from a single venue (Binance); other venues may differ.
-- Results, once available, describe past out-of-sample behaviour and do not guarantee future performance.
-- The legacy code in `legacy/` is known to be flawed and must not be used for conclusions.
+- Single venue (Binance spot). The data runs from 2017-08 for BTC and ETH and from 2020-08 for SOL, with 32/32/11 incomplete days.
+- The forecasts are of 5-minute realized variance. That differs from close-to-close variance, so the VaR distributions need recalibration (see the `t_cal` and FHS columns).
+- Drift is measured against the full training history, so a calm regime can read as drift.
+- Only SQLite has been exercised for the forecast store; the Postgres upsert path is untested.
+- Past out-of-sample performance does not guarantee future performance.
 
 **This project is for research and education only. It is not investment advice.**
