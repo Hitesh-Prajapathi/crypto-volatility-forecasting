@@ -20,7 +20,8 @@ import os
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time as dtime
+from datetime import UTC, date, datetime
+from datetime import time as dtime
 
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
@@ -234,7 +235,7 @@ def render_metrics(collector: StoreCollector) -> tuple[bytes, str]:
         from prometheus_client import multiprocess
 
         http = CollectorRegistry()
-        multiprocess.MultiProcessCollector(http)
+        multiprocess.MultiProcessCollector(http)  # type: ignore[no-untyped-call]
     else:
         http = HTTP_REGISTRY
     store = CollectorRegistry()

@@ -24,7 +24,7 @@ class ApiSettings(BaseSettings):
 
     #: SQLAlchemy URL of the forecast store; empty -> ``VOLF_DATABASE_URL`` / the core default.
     database_url: str = ""
-    #: Official backtest summary (``reports/results.json``); empty -> ``<reports_dir>/results.json``.
+    #: Official backtest summary (results.json); empty -> ``<reports_dir>/results.json``.
     results_path: Path | None = Field(
         default=None, validation_alias=AliasChoices("VOLF_RESULTS_PATH", "VOLF_API_RESULTS_PATH")
     )
@@ -45,8 +45,6 @@ class ApiSettings(BaseSettings):
     cors_origins: Annotated[list[str], NoDecode] = Field(default_factory=list)
     #: Count a ``fallback`` forecast as "champion loadable" for ``/readyz``.
     ready_allow_fallback: bool = False
-    #: Max rows per history page.
-    max_history_limit: int = Field(default=1000, ge=1)
 
     @field_validator("cors_origins", mode="before")
     @classmethod

@@ -1,90 +1,112 @@
-"""Placeholder ASGI app (platform contract stub).
+"""The volforecast API (ASGI app ``volforecast.serving.app:app``).
 
-A later milestone replaces this module with the real forecasting API. The platform
-(Dockerfile, Helm chart, Prometheus, k6) is built against exactly these endpoints:
+Serves precomputed forecasts from the forecast store (ADR-0009); it never loads models. See
+``docs/api.md`` for endpoints, configuration, caching, rate limits and readiness semantics.
 
-* ``GET /healthz``  liveness
-* ``GET /readyz``   readiness
-* ``GET /metrics``  Prometheus exposition
-* ``GET /v1/forecast``  currently 503
+Only ``serve``-extra dependencies may be imported here (no mlflow, no ``registry``/``flows``/
+``models`` packages): the API image does not contain them.
 """
 
 from __future__ import annotations
 
-import time
-from collections.abc import AsyncIterator, Awaitable, Callable
+import asyncio
+import contextlib
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, Response
-from fastapi.responses import JSONResponse
-from prometheus_client import (
-    CONTENT_TYPE_LATEST,
-    CollectorRegistry,
-    Counter,
-    Histogram,
-    generate_latest,
+from fastapi import FastAPI
+from starlette.middleware import Middleware
+from starlette.middleware.cors import CORSMiddleware
+
+from volforecast.forecast_store import ForecastRepository
+from volforecast.logging import configure_logging, get_logger
+from volforecast.serving.errors import install_error_handlers
+from volforecast.serving.metrics import StoreCollector, StoreView
+from volforecast.serving.middleware import (
+    REQUEST_ID_HEADER,
+    MetricsMiddleware,
+    RequestContextMiddleware,
 )
+from volforecast.serving.ratelimit import TokenBucketLimiter
+from volforecast.serving.routes import ops, v1
+from volforecast.serving.settings import ApiSettings
+from volforecast.serving.snapshot import SnapshotCache
 
-REGISTRY = CollectorRegistry(auto_describe=True)
+log = get_logger(__name__)
 
-HTTP_REQUEST_DURATION = Histogram(
-    "http_request_duration_seconds",
-    "HTTP request latency in seconds.",
-    ["route", "method", "status"],
-    buckets=(0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.2, 0.3, 0.5, 1.0, 2.5, 5.0),
-    registry=REGISTRY,
-)
-HTTP_REQUESTS_TOTAL = Counter(
-    "http_requests_total",
-    "Total HTTP requests.",
-    ["route", "method", "status"],
-    registry=REGISTRY,
-)
+API_VERSION = "1.0.0"
 
+_DESCRIPTION = """\
+Daily realized-volatility forecasts for crypto assets. Forecasts are computed in batch by the
+`forecast` flow and read from the forecast store; the API never runs a model per request.
 
-@asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    app.state.ready = True
-    yield
-    app.state.ready = False
+All errors use `{"error": {"code", "message", "request_id"}}`. GET responses of `/v1` carry an
+`ETag` and `Cache-Control`; send `If-None-Match` to get `304`. `/v1` is rate limited per client IP
+(`429` + `Retry-After`).
+"""
 
 
-app = FastAPI(title="volforecast (stub)", version="0.1.0", lifespan=lifespan)
+def create_app(api: ApiSettings | None = None) -> FastAPI:
+    """Build the app. ``api`` defaults to ``ApiSettings()`` (environment)."""
+    api = api or ApiSettings()
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        from volforecast.config import Settings
+
+        core = Settings()
+        configure_logging(core.log_level, core.log_json)
+        # create=False: the API never runs DDL; the flows own the schema.
+        repo = ForecastRepository(api.database_url, create=False)
+        cache = SnapshotCache(repo, api)
+        app.state.repo = repo
+        app.state.cache = cache
+        app.state.store_collector = StoreCollector(
+            lambda: StoreView(
+                metrics=cache.snapshot.metrics,
+                origins=cache.snapshot.origins,
+                ready=cache.ready,
+                loaded_at=cache.snapshot.loaded_at,
+            )
+        )
+        task = asyncio.create_task(cache.run(), name="snapshot-reload")
+        log.info("api_started", reload_interval_s=api.reload_interval_s)
+        try:
+            yield
+        finally:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+            repo.engine.dispose()
+            log.info("api_stopped")
+
+    middleware: list[Middleware] = []
+    if api.cors_origins:
+        middleware.append(
+            Middleware(
+                CORSMiddleware,
+                allow_origins=api.cors_origins,
+                allow_methods=["GET", "OPTIONS"],
+                allow_headers=["If-None-Match", REQUEST_ID_HEADER, "Content-Type"],
+                expose_headers=["ETag", "Retry-After", REQUEST_ID_HEADER, "Cache-Control"],
+                max_age=600,
+            )
+        )
+    middleware += [Middleware(MetricsMiddleware), Middleware(RequestContextMiddleware)]
+
+    app = FastAPI(
+        title="volforecast API",
+        version=API_VERSION,
+        description=_DESCRIPTION,
+        lifespan=lifespan,
+        middleware=middleware,
+    )
+    app.state.api = api
+    app.state.limiter = TokenBucketLimiter(api.rate_limit_rps, api.rate_limit_burst)
+    install_error_handlers(app)
+    app.include_router(v1)
+    app.include_router(ops)
+    return app
 
 
-@app.middleware("http")
-async def record_metrics(
-    request: Request, call_next: Callable[[Request], Awaitable[Response]]
-) -> Response:
-    start = time.perf_counter()
-    status = "500"
-    try:
-        response = await call_next(request)
-        status = str(response.status_code)
-        return response
-    finally:
-        route = request.scope.get("route")
-        path = getattr(route, "path", None) or "unmatched"  # low-cardinality label
-        labels = {"route": path, "method": request.method, "status": status}
-        HTTP_REQUEST_DURATION.labels(**labels).observe(time.perf_counter() - start)
-        HTTP_REQUESTS_TOTAL.labels(**labels).inc()
-
-
-@app.get("/healthz")
-async def healthz() -> dict[str, str]:
-    return {"status": "ok"}
-
-
-@app.get("/readyz")
-async def readyz() -> dict[str, object]:
-    return {"status": "ready", "stub": True}
-
-
-@app.get("/metrics")
-async def metrics() -> Response:
-    return Response(generate_latest(REGISTRY), media_type=CONTENT_TYPE_LATEST)
-
-
-@app.get("/v1/forecast")
-async def forecast(asset: str = "BTCUSDT", horizon: int = 1) -> JSONResponse:
-    return JSONResponse(status_code=503, content={"detail": "not implemented"})
+app = create_app()
