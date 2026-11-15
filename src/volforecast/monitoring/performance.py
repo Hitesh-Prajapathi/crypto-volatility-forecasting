@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 
 from volforecast.evaluation.losses import qlike
-from volforecast.evaluation.var_backtest import basel_traffic_light
+from volforecast.evaluation.var_backtest import basel_traffic_light, kupiec_pof
 from volforecast.forecast_store import (
     ROLE_BENCHMARK,
     SERVED_ROLES,
@@ -32,6 +32,7 @@ log = get_logger(__name__)
 
 CHAMPION_LABEL = "champion"
 BENCHMARK_LABEL = "har_benchmark"
+MIN_KUPIEC_OBS = 30
 
 
 def _latest_per_origin(fc: pd.DataFrame) -> pd.DataFrame:
@@ -157,6 +158,10 @@ def evaluate_asset(
                     info["var99_breaches_window"] = st.breaches
                     info["var99_obs"] = st.n
                     info["basel_zone"] = st.zone
+                    if len(hits) >= MIN_KUPIEC_OBS:
+                        info["var99_kupiec_p"] = float(
+                            kupiec_pof(hits.to_numpy(dtype=bool), 1.0 - cfg.breach_coverage).pvalue
+                        )
                     if st.fired:
                         out.triggers.append(
                             f"99% VaR breaches {st.breaches}/{st.n} -> Basel {st.zone} zone"

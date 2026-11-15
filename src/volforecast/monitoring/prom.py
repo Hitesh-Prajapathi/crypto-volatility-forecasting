@@ -94,7 +94,7 @@ class PipelineMetrics:
         )
         self.drift_share = Gauge(
             "volforecast_drift_share",
-            "Share of drifted features (PSI > 0.2)",
+            "Share of drifted features (PSI and Wasserstein criteria, see monitoring.drift)",
             ["asset"],
             registry=r,
         )
