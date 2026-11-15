@@ -8,7 +8,7 @@
 FROM ghcr.io/astral-sh/uv:0.9.25 AS uv
 
 # ---- builder -------------------------------------------------------------------
-FROM python:3.12-slim-bookworm AS builder
+FROM python:3.15-slim-bookworm AS builder
 COPY --from=uv /uv /uvx /bin/
 ARG UV_EXTRAS="--extra mlops --extra serve"
 ENV UV_LINK_MODE=copy \
@@ -28,7 +28,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     && find /opt/venv -type d -name __pycache__ -prune -exec rm -rf {} +
 
 # ---- runtime ------------------------------------------------------------------
-FROM python:3.12-slim-bookworm AS runtime
+FROM python:3.15-slim-bookworm AS runtime
 
 ARG VERSION=0.1.0
 ARG REVISION=unknown

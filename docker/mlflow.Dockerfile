@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 # MLflow tracking server with the Postgres + S3 (MinIO) drivers the stock image lacks.
-FROM python:3.12-slim-bookworm
+FROM python:3.15-slim-bookworm
 
 ARG MLFLOW_VERSION=3.18.0
 RUN pip install --no-cache-dir \
