@@ -38,5 +38,7 @@ monitoring:
   breach_window: 250
   breach_coverage: 0.99
   drift_window: 30
-  psi_threshold: 0.2
-  psi_bins: 10
+  psi_threshold: 0.25        # conventional "significant shift" level
+  wasserstein_threshold: 0.5 # W / std(reference): half a standard deviation
+  psi_bins: 5                # ~6 current obs per bin for a 30-day window
+  drift_share_trigger: 0.5   # retrain requested when >= half of the features drifted

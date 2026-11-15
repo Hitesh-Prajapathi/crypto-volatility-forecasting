@@ -82,8 +82,14 @@ class MonitoringConfig(BaseModel):
     breach_coverage: float = 0.99
     #: Basel-zone trigger only fires once ``breach_window`` observations exist.
     drift_window: int = Field(default=30, ge=5)
-    psi_threshold: float = 0.2
-    psi_bins: int = Field(default=10, ge=2)
+    #: A feature drifts when PSI > psi_threshold AND W/std(reference) > wasserstein_threshold
+    #: (see volforecast.monitoring.drift for the justification of 5 bins and these levels).
+    psi_threshold: float = 0.25
+    wasserstein_threshold: float = 0.5
+    psi_bins: int = Field(default=5, ge=2)
+    #: Data drift requests a retrain when the share of drifted features reaches this value
+    #: (None disables the data-drift trigger; performance triggers always apply).
+    drift_share_trigger: float | None = Field(default=0.5, gt=0.0, le=1.0)
 
 
 class ProductionConfig(BaseModel):
