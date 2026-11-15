@@ -24,9 +24,12 @@ def test_shipped_config_is_valid_and_matches_plan() -> None:
     assert cfg.benchmark == "har"
     refit = {m.name: m.refit_every for m in cfg.models}
     assert refit["garch"] == refit["gjr_garch"] == 7
-    assert all(refit[n] == 1 for n in ("har", "log_har", "har_cj", "shar", "harq"))
-    assert refit["lgbm"] == refit["xgb"] == refit["ens_eq"] == 7
-    assert refit["ens_inv"] >= 10_000  # stateful: fitted once, members refit internally
+    daily = ("har", "log_har", "har_dow", "log_har_dow", "har_cj", "shar", "harq")
+    assert all(refit[n] == 1 for n in daily)
+    assert refit["lgbm"] == refit["xgb"] == refit["ens_eq"] == refit["ens_inv"] == 7
+    reuse = {m.name: m.reuse_instance for m in cfg.models}
+    assert reuse.pop("ens_inv")  # stateful: engine re-fits the same instance
+    assert not any(reuse.values())
     assert cfg.var.alphas == [0.05, 0.01]
     assert cfg.var.dists == ["normal", "normal_cal", "t", "t_cal", "fhs"]
     assert cfg.var.min_resid == 250
@@ -68,3 +71,16 @@ def test_load_config_rejects_non_mapping(tmp_path: Path) -> None:
     p.write_text("- just\n- a list\n")
     with pytest.raises(ValueError, match="mapping"):
         load_config(p)
+
+
+def test_reuse_instance_option_defaults_off_and_reaches_engine_spec() -> None:
+    from volforecast.pipeline.backtest import model_specs
+
+    cfg = BacktestConfig.model_validate(
+        {
+            "assets": ["BTCUSDT"],
+            "models": [{"name": "har"}, {"name": "ens_inv", "reuse_instance": True}],
+        }
+    )
+    assert [m.reuse_instance for m in cfg.models] == [False, True]
+    assert [s.reuse_instance for s in model_specs(cfg)] == [False, True]

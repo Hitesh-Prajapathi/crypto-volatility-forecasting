@@ -5,6 +5,9 @@ refit every ``refit_every`` origins; between refits ``predict_variance`` filters
 rows with the last fitted parameters. The output is a long table with
 ``contracts.FORECAST_COLUMNS``, which drives all downstream evaluation, VaR and reporting.
 
+By default each refit builds a new model instance; ``ModelSpec.reuse_instance`` makes the
+engine build it once and re-``fit`` the same instance (for models that carry state across refits).
+
 Realized targets are attached for scoring only (never shown to the model): the realized
 h-day variance at origin t is sum_{k=1..h} RV_{t+k}. It is NaN if any of those days is
 incomplete (ADR-0003) or not yet observed.
@@ -52,12 +55,23 @@ class WalkForwardConfig:
 
 @dataclass(frozen=True)
 class ModelSpec:
-    """A named model to evaluate. `builder` must return a fresh, unfitted model."""
+    """A named model to evaluate. `builder` must return a fresh, unfitted model.
+
+    By default a refit builds a NEW instance (``builder()``) and fits it, discarding the old
+    one. With ``reuse_instance=True`` the model is built once per (model, horizon) run and
+    ``fit()`` is called again on that same instance at every refit. Use it for stateful models
+    that accumulate out-of-sample information across refits (e.g. the inverse-loss ensemble's
+    forecast history); such a model's ``fit`` must itself decide what to keep. Caveat: if a
+    refit raises, the instance may be left half-updated, so later predictions can fail until
+    the next successful refit (recorded as predict failures), unlike the default mode where the
+    previous good instance is kept.
+    """
 
     name: str
     builder: ModelBuilder
     refit_every: int | None = None  # overrides WalkForwardConfig.refit_every
     version: str = "dev"
+    reuse_instance: bool = False
 
 
 @dataclass
@@ -121,7 +135,12 @@ def run_walkforward(
         history = panel.iloc[lo : pos + 1]  # rows <= origin ONLY
         origin = panel.index[pos]
         if k % refit_every == 0 or not fitted:
-            candidate = spec.builder()
+            if spec.reuse_instance:
+                if model is None:
+                    model = spec.builder()
+                candidate = model
+            else:
+                candidate = spec.builder()
             try:
                 candidate.fit(history, h)
                 model, fitted = candidate, True

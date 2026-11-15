@@ -10,7 +10,7 @@ from volforecast.models.ensemble import EqualWeightEnsemble, InverseLossEnsemble
 from volforecast.models.ewma import EWMARealized, EWMAReturns
 from volforecast.models.garch import GarchModel
 from volforecast.models.gbm import LightGBMVol, XGBoostVol
-from volforecast.models.har import HAR, HARCJ, HARQ, SHAR, LogHAR
+from volforecast.models.har import HAR, HARCJ, HARQ, SHAR, HARDow, LogHAR, LogHARDow
 from volforecast.models.naive import NaiveRV
 
 
@@ -65,6 +65,8 @@ MODEL_FACTORY: dict[str, Callable[..., VolModel]] = {
     "gjr_garch": _gjr_garch,
     "har": HAR,
     "log_har": LogHAR,
+    "har_dow": HARDow,
+    "log_har_dow": LogHARDow,
     "har_cj": HARCJ,
     "shar": SHAR,
     "harq": HARQ,

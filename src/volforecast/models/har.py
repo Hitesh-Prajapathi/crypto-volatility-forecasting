@@ -47,6 +47,8 @@ class _LinearVolModel(BaseVolModel):
     _log_target = False
     _insanity_filter = False
     floor_frac: float = 0.0  # only meaningful for level models (see `_LevelModel`)
+    #: horizon of the current fit, for regressors that depend on it (set by `_fit`)
+    _design_h: int | None = None
 
     def __init__(self, estimator: str = "ols", drop_incomplete_targets: bool = True) -> None:
         super().__init__(drop_incomplete_targets)
@@ -228,7 +230,7 @@ class HAR(_LevelModel):
     """
 
     name = "har"
-    feature_names = ("rv_d", "rv_w", "rv_m")
+    feature_names: tuple[str, ...] = ("rv_d", "rv_w", "rv_m")
     required_columns = (COL_RV,)
 
     def _raw_design(self, panel: pd.DataFrame) -> FloatArray:
@@ -250,7 +252,7 @@ class LogHAR(_LinearVolModel):
     """
 
     name = "log_har"
-    feature_names = ("log_rv_d", "log_rv_w", "log_rv_m")
+    feature_names: tuple[str, ...] = ("log_rv_d", "log_rv_w", "log_rv_m")
     required_columns = (COL_RV,)
     _log_target = True
 
@@ -262,6 +264,76 @@ class LogHAR(_LinearVolModel):
         with np.errstate(divide="ignore", invalid="ignore"):
             d = np.log(panel[COL_RV].to_numpy(dtype=float))
         return np.column_stack([d, a["log_rv_w"].to_numpy(), a["log_rv_m"].to_numpy()])
+
+
+def weekend_days_ahead(index: pd.DatetimeIndex, h: int) -> FloatArray:
+    """Number of Saturday/Sunday days among ``t+1..t+h`` for every date ``t`` in `index`.
+
+    A deterministic calendar fact known at the origin (it uses no data beyond the date itself).
+    For ``h=1`` it is the 0/1 indicator that the target day is a weekend day.
+    """
+    dow = np.asarray(index.day_of_week)  # Monday=0 ... Sunday=6
+    count = np.zeros(len(dow), dtype=float)
+    for k in range(1, h + 1):
+        count += ((dow + k) % 7) >= 5
+    return count
+
+
+class _WeekendRegressor(_LinearVolModel):
+    """Mixin: appends the target-weekend count ``wknd`` as the last regressor.
+
+    Crypto trades 365 days a year but weekend RV is markedly lower than weekday RV (BTC: about
+    0.53x), which plain HAR models ignore. ``wknd`` for origin t counts the Saturdays/Sundays in
+    the target window ``t+1..t+h`` (see `weekend_days_ahead`).
+    """
+
+    def _fit(self, panel: pd.DataFrame, h: int, y: FloatArray, ok: BoolArray) -> None:
+        self._design_h = h
+        super()._fit(panel, h, y, ok)
+
+    def _raw_design(self, panel: pd.DataFrame) -> FloatArray:
+        if self._design_h is None:
+            raise ModelInputError(f"{self.name}: horizon unknown (fit() first)")
+        base = super()._raw_design(panel)
+        wknd = weekend_days_ahead(pd.DatetimeIndex(panel.index), self._design_h)
+        return np.column_stack([base, wknd])
+
+    def _current_regressors(self, panel: pd.DataFrame) -> FloatArray | None:
+        row = super()._current_regressors(panel)
+        if row is None:
+            return None
+        # If the lagged regressors were stale, `row` comes from an earlier date: the calendar
+        # regressor must still describe the CURRENT origin's target window.
+        assert self._design_h is not None
+        row = row.copy()
+        row[-1] = weekend_days_ahead(pd.DatetimeIndex(panel.index[-1:]), self._design_h)[0]
+        return row
+
+
+class HARDow(_WeekendRegressor, HAR):
+    r"""Calendar-aware level HAR: HAR-RV plus the target-weekend count.
+
+    .. math::
+        \sum_{k=1}^h RV_{t+k} = \beta_0 + \beta_d RV_t + \beta_w \overline{RV}_{t-4:t}
+        + \beta_m \overline{RV}_{t-21:t} + \beta_{wk}\, \mathrm{wknd}_{t,h} + \varepsilon
+
+    ``wknd_{t,h}`` = number of Saturday/Sunday days in ``t+1..t+h``. Uses the level-model
+    insanity filter and trailing-RV floor of `HAR`.
+    """
+
+    name = "har_dow"
+    feature_names = (*HAR.feature_names, "wknd")
+
+
+class LogHARDow(_WeekendRegressor, LogHAR):
+    r"""Calendar-aware log-HAR: log-HAR plus the target-weekend count.
+
+    Same specification and log-normal bias correction as `LogHAR`, with the extra regressor
+    ``wknd`` (Saturday/Sunday days in ``t+1..t+h``, known at the origin).
+    """
+
+    name = "log_har_dow"
+    feature_names = (*LogHAR.feature_names, "wknd")
 
 
 class HARCJ(_LevelModel):

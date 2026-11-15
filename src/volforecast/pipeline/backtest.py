@@ -64,6 +64,7 @@ def model_specs(cfg: BacktestConfig) -> list[ModelSpec]:
             builder=partial(build_model, m.name, **m.params),
             refit_every=m.refit_every,
             version=m.version,
+            reuse_instance=m.reuse_instance,
         )
         for m in cfg.models
     ]

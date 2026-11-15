@@ -14,16 +14,19 @@ models:
   - {name: gjr_garch, refit_every: 7, params: {dist: t}}
   - {name: har, refit_every: 1}
   - {name: log_har, refit_every: 1}
+  # Calendar-aware benchmarks: HAR / log-HAR plus the count of weekend days in the target window.
+  - {name: har_dow, refit_every: 1}
+  - {name: log_har_dow, refit_every: 1}
   - {name: har_cj, refit_every: 1}
   - {name: shar, refit_every: 1}
   - {name: harq, refit_every: 1}
   - {name: lgbm, refit_every: 7}
   - {name: xgb, refit_every: 7}
-  # Combinations of log_har, harq, lgbm. The ensemble refits its members itself (HAR daily, lgbm
-  # weekly). ens_inv keeps its members' out-of-sample forecast history inside the object, so the
-  # engine must fit it once: a huge refit_every (the engine discards the instance on refit).
+  # Combinations of log_har, harq, lgbm. The ensemble refits its members itself between engine
+  # refits (HAR daily, lgbm weekly). ens_inv keeps its members' out-of-sample forecast history
+  # inside the object, so the engine re-fits the SAME instance (reuse_instance) every 7 origins.
   - {name: ens_eq, refit_every: 7}
-  - {name: ens_inv, refit_every: 1000000}
+  - {name: ens_inv, refit_every: 7, reuse_instance: true}
 var:
   alphas: [0.05, 0.01]
   dists: [normal, normal_cal, t, t_cal, fhs]

@@ -13,10 +13,9 @@ unrealized targets and are ignored), and only the last ``window`` of them.
 
 Statefulness and the walk-forward engine
 ----------------------------------------
-The engine calls ``fit(history, h)`` every ``refit_every`` origins on a *fresh* instance
-(``spec.builder()``) and ``predict_variance(history, h)`` at every origin on that instance. To
-drive the ensemble through exactly this interface without engine changes, the ensemble keeps
-its own state:
+The engine calls ``fit(history, h)`` every ``refit_every`` origins and
+``predict_variance(history, h)`` at every origin. By default the engine builds a *fresh*
+instance (``spec.builder()``) for each fit; the ensemble keeps its own state:
 
 * the members are (re)fitted by the ensemble, not by the engine: ``fit`` fits all of them on the
   supplied history, and ``predict_variance`` refits member ``j`` once ``member_refit_every[j]``
@@ -24,11 +23,12 @@ its own state:
 * every ``predict_variance`` call records the members' forecasts for that origin, so the
   trailing losses are genuine out-of-sample numbers (never in-sample fits).
 
-Because the engine discards the instance at every engine-side refit, the history would be lost.
-Configure ensembles that need it (``ens_inv``) with a very large engine ``refit_every`` (so
-``fit`` runs once, at the first origin) and let ``member_refit_every`` set the actual refit
-cadence. If ``fit`` is called again on the same instance the history is kept (it is reset only
-when the horizon changes). A proper fix would be an engine ``update`` hook / instance reuse.
+Configure ensembles that need the history (``ens_inv``) with ``reuse_instance: true`` on the
+engine's ``ModelSpec``: the engine then builds the ensemble once and calls ``fit`` on the same
+instance at every engine refit, so the forecast history survives (it is reset only when the
+horizon changes). Each ``fit`` refits all members on the supplied history; between engine
+refits ``member_refit_every`` sets the members' own cadence. Without instance reuse the engine
+would discard the object at every refit and the weights would restart from equal weights.
 """
 
 from __future__ import annotations
