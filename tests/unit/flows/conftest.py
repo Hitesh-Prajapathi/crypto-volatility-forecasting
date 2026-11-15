@@ -42,6 +42,13 @@ TINY_CONFIG = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _isolated_artifacts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Flows built from the environment must never write MLflow artifacts or drift reports
+    into the repository's ``artifacts/`` directory."""
+    monkeypatch.setenv("VOLF_ARTIFACTS_DIR", str(tmp_path / "artifacts"))
+
+
 @pytest.fixture
 def tiny_config(tmp_path: Path) -> Path:
     path = tmp_path / "production.yaml"

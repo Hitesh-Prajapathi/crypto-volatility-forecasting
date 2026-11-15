@@ -50,6 +50,7 @@ def test_full_daily_cycle(
 ) -> None:
     import yaml
 
+    monkeypatch.setenv("VOLF_ARTIFACTS_DIR", str(tmp_path / "artifacts"))
     cfg_path = tmp_path / "production.yaml"
     cfg_path.write_text(yaml.safe_dump(TINY_CONFIG))
     root = tmp_path / "data"

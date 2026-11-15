@@ -91,14 +91,17 @@ def decide_retrain(
 
 
 def champion_train_end(rt: Runtime, asset: str) -> str | None:
-    """``train_end_date`` tag of the h-first champion (the drift reference window end)."""
-    try:
-        name = registered_model_name(asset, rt.cfg.horizons[0])
-        mv = alias_version(rt.client, name, CHAMPION)
-    except Exception as exc:  # registry unreachable: drift falls back to "all earlier days"
-        log.warning("champion_lookup_failed", asset=asset, err=repr(exc))
-        return None
-    return None if mv is None else (mv.tags or {}).get("train_end_date")
+    """``train_end_date`` tag of the first horizon that has a champion (the drift reference
+    window end), or None if there is no champion (or the registry is unreachable)."""
+    for h in rt.cfg.horizons:
+        try:
+            mv = alias_version(rt.client, registered_model_name(asset, h), CHAMPION)
+        except Exception as exc:  # registry unreachable: drift falls back to "all earlier days"
+            log.warning("champion_lookup_failed", asset=asset, err=repr(exc))
+            return None
+        if mv is not None and (mv.tags or {}).get("train_end_date"):
+            return str(mv.tags["train_end_date"])
+    return None
 
 
 def evaluate_one(rt: Runtime, asset: str) -> tuple[AssetEvaluation, DriftReport]:

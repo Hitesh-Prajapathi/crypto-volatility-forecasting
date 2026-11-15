@@ -11,3 +11,10 @@ Implement drift metrics in `volforecast.monitoring.drift` with numpy/scipy: Popu
 ## Consequences
 + No heavy dependency; metrics are transparent and unit-tested against hand computations.
 − No Evidently UI; revisit when Evidently supports pandas 3.
+
+## Amendment (M5, 2026-11-15)
+Measured on simulated stationary data, PSI with 10 quantile bins on a 30-day window flags most
+features (the PSI null mean is about (bins - 1) / n_current). The shipped detector uses 5 bins and
+flags a feature only when PSI > 0.25 **and** the Wasserstein distance exceeds 0.5 reference standard
+deviations; see `docs/mlops.md` section 5. Data drift can now request a retrain (share of drifted
+features >= 0.5, configurable or off); the promotion gate still decides whether anything changes.

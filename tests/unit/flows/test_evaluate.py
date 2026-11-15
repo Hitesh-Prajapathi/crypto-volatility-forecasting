@@ -13,6 +13,7 @@ from volforecast.config import Settings
 from volforecast.flows.common import Runtime
 from volforecast.flows.evaluate import (
     RetrainDecision,
+    champion_train_end,
     decide_retrain,
     evaluate_flow,
     evaluate_one,
@@ -76,6 +77,18 @@ def test_evaluate_scores_live_forecasts_and_writes_metrics(
     files = list((runtime.settings.drift_reports_dir / ASSET).glob("*.json"))
     assert len(files) == 1
     assert json.loads(files[0].read_text())["asset"] == ASSET
+
+
+def test_drift_reference_ends_at_the_champions_training_end(
+    runtime: Runtime, synthetic_panel_400: pd.DataFrame
+) -> None:
+    assert champion_train_end(runtime, ASSET) is None
+    seed_champion(runtime, synthetic_panel_400, 300)
+    assert champion_train_end(runtime, ASSET) == str(synthetic_panel_400.index[299].date())
+    _store_live_rows(runtime, synthetic_panel_400, 40, champion_factor=1.0)
+    _, report = evaluate_one(runtime, ASSET)
+    assert report.train_end_date == str(synthetic_panel_400.index[299].date())
+    assert report.n_reference == 300
 
 
 def test_bad_champion_triggers_a_retrain_request(
