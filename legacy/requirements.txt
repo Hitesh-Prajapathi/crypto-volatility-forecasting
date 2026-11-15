@@ -17,7 +17,7 @@ tensorflow>=2.14
 
 # Visualization
 matplotlib>=3.8
-seaborn>=0.13
+seaborn>=0.13.2
 
 # API
 fastapi>=0.110
