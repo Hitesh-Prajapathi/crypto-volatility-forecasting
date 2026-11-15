@@ -42,6 +42,16 @@ config:
   MLFLOW_S3_ENDPOINT_URL: http://minio:9000
   PREFECT_API_URL: http://prefect:4200/api
   WEB_CONCURRENCY: "2"
+  # API (docs/api.md). Rate limit is per client IP and per worker process.
+  VOLF_API_RELOAD_INTERVAL_S: "60"
+  VOLF_API_RATE_LIMIT_RPS: "20"
+  VOLF_API_RATE_LIMIT_BURST: "40"
+  # Number of trusted reverse proxies in front (ingress = 1); 0 ignores X-Forwarded-For.
+  VOLF_API_TRUSTED_PROXY_HOPS: "0"
+  # Comma-separated CORS allowlist; empty disables CORS.
+  VOLF_API_CORS_ORIGINS: ""
+  # Must stay below terminationGracePeriodSeconds minus the 5 s preStop sleep.
+  VOLF_API_GRACEFUL_TIMEOUT_S: "20"
 
 # -- Extra non-secret environment variables merged into `config`.
 extraConfig: {}

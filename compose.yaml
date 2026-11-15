@@ -118,12 +118,25 @@ services:
     environment:
       <<: *app-env
       WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
+      # API knobs (docs/api.md). The limit is per client IP and per worker; raise it for k6.
+      VOLF_API_RATE_LIMIT_RPS: ${API_RATE_LIMIT_RPS:-20}
+      VOLF_API_CORS_ORIGINS: ${API_CORS_ORIGINS:-}
+      # GET /v1/backtest/summary serves this file (404 when ./reports/results.json is absent)
+      VOLF_RESULTS_PATH: /reports/results.json
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    volumes: [data:/data]
+    volumes:
+      - data:/data
+      - ./reports:/reports:ro
     ports: ["127.0.0.1:${API_PORT:-8000}:8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/readyz', timeout=2)"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
     restart: unless-stopped
 
   jobs:

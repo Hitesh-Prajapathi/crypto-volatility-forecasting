@@ -67,5 +67,7 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
     CMD ["python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2).status == 200 else 1)"]
 
-# Shell form so ${WEB_CONCURRENCY} expands; exec so uvicorn is PID 1 and gets SIGTERM.
-CMD ["sh", "-c", "exec uvicorn volforecast.serving.app:app --host 0.0.0.0 --port 8000 --workers ${WEB_CONCURRENCY:-2}"]
+# Exec form: the Python entrypoint is PID 1 and receives SIGTERM, so uvicorn drains in-flight
+# requests and runs the lifespan shutdown. WEB_CONCURRENCY sets the worker count; with more than
+# one worker the entrypoint enables Prometheus multiprocess mode in /tmp/volforecast-prom.
+CMD ["python", "-m", "volforecast.serving"]
