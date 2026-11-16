@@ -1,0 +1,144 @@
+# Unit tests of the freshness SLO rules (group volforecast.slo).
+#   docker run --rm --entrypoint promtool -v $PWD:/w -w /w prom/prometheus:v3.5.0 \
+#     test rules deploy/monitoring/alerts/tests/freshness-slo.yaml
+# t=0 is 1970-01-01T00:00:00Z, so hour() / minute() are the UTC wall clock of the simulated day.
+#
+# Input: volforecast_forecast_age_seconds{horizon="1"} sampled every 10 minutes. A forecast whose
+# origin day closed at 00:00 is published at 00:35 (visible from the 00:40 sample, age 2400); until
+# then (and all day when the run is missed) the age keeps growing from the previous origin.
+#   day 0: good   (00:00 -> 86400 stale, fresh from 00:40, 144 samples)
+#   day 1: missed (age 86400 at 00:00, growing all day)
+#   day 2: missed
+#   day 3: good
+rule_files:
+  - ../../../helm/volforecast/rules/volforecast-rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: daily sample is 1 on a good day, 0 on missed days, absent outside 01:00
+    interval: 10m
+    input_series:
+      - series: 'volforecast_forecast_age_seconds{asset="BTCUSDT",horizon="1"}'
+        values: "86400+600x3 2400+600x139 86400+600x143 172800+600x143 259200+600x3 2400+600x139"
+      # another horizon never matches the rule (horizon="1" only)
+      - series: 'volforecast_forecast_age_seconds{asset="BTCUSDT",horizon="5"}'
+        values: "999999+0x575"
+    promql_expr_test:
+      - expr: volforecast:forecast_fresh_at_0100:bool
+        eval_time: 1h # day 0 01:00, fresh forecast (age 3600)
+        exp_samples:
+          - labels: 'volforecast:forecast_fresh_at_0100:bool{asset="BTCUSDT"}'
+            value: 1
+      - expr: volforecast:forecast_fresh_at_0100:bool
+        eval_time: 25h # day 1 01:00, missed (age 90000 >= 86400)
+        exp_samples:
+          - labels: 'volforecast:forecast_fresh_at_0100:bool{asset="BTCUSDT"}'
+            value: 0
+      - expr: volforecast:forecast_fresh_at_0100:bool
+        eval_time: 49h # day 2 01:00, missed
+        exp_samples:
+          - labels: 'volforecast:forecast_fresh_at_0100:bool{asset="BTCUSDT"}'
+            value: 0
+      - expr: volforecast:forecast_fresh_at_0100:bool
+        eval_time: 73h # day 3 01:00, good again
+        exp_samples:
+          - labels: 'volforecast:forecast_fresh_at_0100:bool{asset="BTCUSDT"}'
+            value: 1
+      # outside the 01:00 minute there is no sample (instant selectors expire after 5 minutes)
+      - expr: volforecast:forecast_fresh_at_0100:bool
+        eval_time: 2h
+        exp_samples: []
+      - expr: volforecast:forecast_fresh_at_0100:bool
+        eval_time: 1h10m
+        exp_samples: []
+      # SLI over the daily samples: 2 good days out of 4
+      - expr: volforecast:forecast_fresh_at_0100:ratio_30d
+        eval_time: 74h
+        exp_samples:
+          - labels: 'volforecast:forecast_fresh_at_0100:ratio_30d{asset="BTCUSDT"}'
+            value: 0.5
+      - expr: volforecast:forecast_fresh_at_0100:misses_30d
+        eval_time: 74h
+        exp_samples:
+          - labels: 'volforecast:forecast_fresh_at_0100:misses_30d{asset="BTCUSDT"}'
+            value: 2
+      - expr: volforecast:forecast_fresh_at_0100:ratio_30d
+        eval_time: 2h # only the good day so far
+        exp_samples:
+          - labels: 'volforecast:forecast_fresh_at_0100:ratio_30d{asset="BTCUSDT"}'
+            value: 1
+    alert_rule_test:
+      # ForecastLate: silent on a good day ...
+      - alertname: ForecastLate
+        eval_time: 1h10m
+        exp_alerts: []
+      # ... fires from 25h05m of age (day 1, 01:10 sample = 90600 s) ...
+      - alertname: ForecastLate
+        eval_time: 25h10m
+        exp_alerts:
+          - exp_labels: { severity: warning, asset: BTCUSDT }
+            exp_annotations:
+              summary: "Forecast for the next day not served for BTCUSDT 5 minutes after 01:00 UTC"
+              description: "The origin day of the served forecast closed 1d 1h 10m 0s ago; the freshness SLO needs the next one served within 1h of the close."
+      # ... and clears when the day-3 forecast appears
+      - alertname: ForecastLate
+        eval_time: 73h10m
+        exp_alerts: []
+      # one miss is not a consecutive miss
+      - alertname: ForecastFreshnessConsecutiveMisses
+        eval_time: 25h30m
+        exp_alerts: []
+      # day 1 and day 2 both missed
+      - alertname: ForecastFreshnessConsecutiveMisses
+        eval_time: 49h30m
+        exp_alerts:
+          - exp_labels: { severity: critical }
+            exp_annotations:
+              summary: "Forecast missed the 01:00 UTC freshness deadline two days in a row"
+              description: "Fast error-budget burn: two consecutive misses. See docs/slo.md (SLO 2)."
+      # day 3 is good again
+      - alertname: ForecastFreshnessConsecutiveMisses
+        eval_time: 73h30m
+        exp_alerts: []
+      # 30-day SLI: fine after the good day, burning after the first miss
+      - alertname: ForecastFreshnessBudgetBurn
+        eval_time: 2h
+        exp_alerts: []
+      - alertname: ForecastFreshnessBudgetBurn
+        eval_time: 74h
+        exp_alerts:
+          - exp_labels: { severity: warning, asset: BTCUSDT }
+            exp_annotations:
+              summary: "Forecast freshness SLO below 99% over 30 days (BTCUSDT)"
+              description: "Share of days with the forecast served by 01:00 UTC is 50%; error budget exhausted, freeze ingest/forecast changes (docs/slo.md)."
+
+  - name: a series that disappears (API down at 01:00) counts as a miss
+    interval: 10m
+    input_series:
+      # day 0 is good until 06:40, then the API stops being scraped for the rest of the horizon
+      - series: 'volforecast_forecast_age_seconds{asset="BTCUSDT",horizon="1"}'
+        values: "86400+600x3 2400+600x39 _x200"
+    promql_expr_test:
+      - expr: volforecast:forecast_fresh_at_0100:bool
+        eval_time: 1h
+        exp_samples:
+          - labels: 'volforecast:forecast_fresh_at_0100:bool{asset="BTCUSDT"}'
+            value: 1
+      - expr: volforecast:forecast_fresh_at_0100:bool
+        eval_time: 25h # the series was last seen < 1 day ago: that asset gets 0
+        exp_samples:
+          - labels: 'volforecast:forecast_fresh_at_0100:bool{asset="BTCUSDT"}'
+            value: 0
+
+  - name: a total outage with no series at all yields one label-less miss
+    interval: 10m
+    input_series:
+      - series: 'up{job="volforecast-api"}'
+        values: "0+0x200"
+    promql_expr_test:
+      - expr: volforecast:forecast_fresh_at_0100:bool
+        eval_time: 1h
+        exp_samples:
+          - labels: "volforecast:forecast_fresh_at_0100:bool"
+            value: 0

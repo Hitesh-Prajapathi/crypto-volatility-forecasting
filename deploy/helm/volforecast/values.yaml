@@ -233,11 +233,9 @@ monitoring:
     # -- Labels so kube-prometheus-stack selects it.
     labels: {release: kube-prometheus-stack}
   prometheusRule:
+    # -- Labels so kube-prometheus-stack selects the rule. The groups themselves (and their
+    # thresholds) come from rules/volforecast-rules.yaml, shared with the compose stack.
     labels: {release: kube-prometheus-stack}
-    # -- Override the alert thresholds.
-    dataStaleSeconds: 93600
-    apiErrorRatio: 0.01
-    apiLatencyP95Seconds: 0.2
 
 test:
   # -- Render the `helm test` hook pod (curls /healthz via the Service).

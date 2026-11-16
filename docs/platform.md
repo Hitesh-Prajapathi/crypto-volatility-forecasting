@@ -57,6 +57,21 @@ volume. `HOME=/tmp`, `MPLCONFIGDIR=/tmp/matplotlib`.
 Pipeline metrics must be visible to the scraped `/metrics` of the API (or a Pushgateway/exporter
 added to the scrape config); jobs are short-lived and cannot be scraped directly.
 
+**Prometheus rules** have a single source, `deploy/helm/volforecast/rules/volforecast-rules.yaml`:
+the compose stack mounts its directory at `/etc/prometheus/alerts`, and the Helm `PrometheusRule`
+renders the same groups through `.Files.Get` (adding only `namespace="<release>"` to the API HTTP
+selectors; `tests/unit/test_alert_rules.py` pins this). Thresholds therefore live in the rules file
+(the old `monitoring.prometheusRule.{dataStaleSeconds,apiErrorRatio,apiLatencyP95Seconds}` chart values
+are gone). It includes the freshness SLO rules (`volforecast:forecast_fresh_at_0100:*`,
+`ForecastLate`, `ForecastFreshnessConsecutiveMisses`, `ForecastFreshnessBudgetBurn`, see
+[slo.md](slo.md)). Check and unit-test them (the image matches compose):
+
+```bash
+P="docker run --rm --entrypoint promtool -v $PWD:/w -w /w prom/prometheus:v3.5.0"
+$P check rules deploy/helm/volforecast/rules/volforecast-rules.yaml
+$P test rules deploy/monitoring/alerts/tests/freshness-slo.yaml
+```
+
 ## 2. Images
 
 ```bash
@@ -88,7 +103,7 @@ docker compose down -v
 | MLflow | http://localhost:5000 (on macOS, port 5000 is taken by AirPlay: set `MLFLOW_PORT=5050`) |
 | Prefect | http://localhost:4200 |
 | MinIO console | http://localhost:9001 |
-| Prometheus | http://localhost:9090 (targets, rules from `deploy/monitoring/alerts`) |
+| Prometheus | http://localhost:9090 (targets, rules from `deploy/helm/volforecast/rules`) |
 | Grafana | http://localhost:3000 (dashboards under the `volforecast` folder) |
 
 Postgres hosts three databases (`volforecast`, `mlflow`, `prefect`; created by
