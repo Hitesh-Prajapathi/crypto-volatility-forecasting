@@ -4,7 +4,7 @@ START  ?= 2017-08-17
 .DEFAULT_GOAL := help
 
 .PHONY: help setup lint format typecheck test test-all cov data quality backtest report \
-	up down kind-up kind-down helm-lint hooks clean
+	site up down kind-up kind-down helm-lint hooks clean
 
 help: ## Show this help
 	@echo "Targets:"
@@ -44,6 +44,9 @@ backtest: ## Walk-forward backtest: make backtest [ASSETS="SOLUSDT ..."] [DATA_R
 
 report: ## Build reports/tables.md, results.json and figures from artifacts/backtest
 	uv run python -m volforecast report --run artifacts/backtest --out reports
+
+site: ## Build the static dashboard into _site/: make site [DB=sqlite:///path] [DEMO=1]
+	uv run python -m volforecast.site --out _site $(if $(DB),--database-url $(DB)) $(if $(DEMO),--demo)
 
 up: ## Start the local stack (docker compose)
 	docker compose up -d --build

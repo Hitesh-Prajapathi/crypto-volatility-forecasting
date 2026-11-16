@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Crypto volatility forecasts</title>
+<meta name="description" content="Daily realized-variance forecasts for BTC, ETH and SOL with a public out-of-sample track record.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="wrap">
+  <h1>Crypto volatility forecasts</h1>
+  <p class="lede">Daily realized-variance forecasts for BTC, ETH and SOL from Binance 5-minute bars, scored out of sample against what actually happened.</p>
+  <p id="disclaimer" class="disclaimer" role="note">This site forecasts volatility, not price direction. It is a research project, not investment advice.</p>
+  <div id="demo-banner" class="banner demo" hidden>DEMO DATA: this page was built from a scratch store and is not a live track record.</div>
+</header>
+
+<main class="wrap">
+  <section id="status" aria-live="polite">
+    <p id="load-msg">Loading forecasts...</p>
+    <p id="empty-msg" class="banner" hidden></p>
+  </section>
+
+  <section id="tomorrow" aria-labelledby="tomorrow-h">
+    <h2 id="tomorrow-h">Next forecasts</h2>
+    <div class="controls" role="group" aria-label="Horizon">
+      <label for="horizon-select">Horizon</label>
+      <select id="horizon-select"></select>
+    </div>
+    <div class="table-scroll">
+      <table id="forecast-table">
+        <thead><tr>
+          <th>Asset</th><th>Origin</th><th>Target</th>
+          <th class="num">Vol (ann.)</th><th class="num">Variance</th><th class="num">VaR 99% (1d)</th><th>Model</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="small">Vol is annualized with 365 days: sqrt(variance / h * 365). The variance is the sum of squared 5-minute log returns over the target days. VaR is a 1-day loss quantile (h=1 only).</p>
+  </section>
+
+  <section id="track" aria-labelledby="track-h">
+    <h2 id="track-h">Live track record</h2>
+    <p id="track-start" class="small"></p>
+    <div id="asset-tabs" class="tabs" role="tablist" aria-label="Asset"></div>
+    <h3>Forecast vs realized volatility</h3>
+    <div id="chart-vol" class="chart" role="img" aria-label="Forecast versus realized annualized volatility"></div>
+    <h3>Cumulative QLIKE: forecast model vs HAR</h3>
+    <p id="qlike-msg" class="small"></p>
+    <div id="chart-qlike" class="chart" role="img" aria-label="Cumulative QLIKE loss of the forecast model versus HAR"></div>
+    <p class="small">Lower is better. Both models are scored on the same days. When the model line stays below HAR, it is beating the benchmark out of sample.</p>
+  </section>
+
+  <section id="backtest" aria-labelledby="backtest-h" hidden>
+    <h2 id="backtest-h">Backtest</h2>
+    <p class="small" id="backtest-src"></p>
+    <div class="table-scroll">
+      <table id="backtest-table">
+        <thead><tr>
+          <th>Asset</th><th>h</th><th class="num">n</th>
+          <th class="num">xgb vs HAR</th><th class="num">log_har_dow vs HAR</th>
+          <th class="num">xgb vs log_har_dow</th><th class="num">DM p</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="small">QLIKE ratio (below 1 beats the benchmark). DM p is the one-sided Diebold-Mariano p-value for "xgb beats log_har_dow".</p>
+    <p id="backtest-note" class="honest"></p>
+  </section>
+</main>
+
+<footer class="wrap">
+  <p id="meta" class="small"></p>
+  <p class="small">Source: <a href="https://github.com/hitesh-prajapathi/crypto-volatility-forecasting">github.com/hitesh-prajapathi/crypto-volatility-forecasting</a></p>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/plotly.js-basic-dist-min@2.35.2/plotly-basic.min.js" crossorigin="anonymous"></script>
+<script src="app.js"></script>
+</body>
+</html>
