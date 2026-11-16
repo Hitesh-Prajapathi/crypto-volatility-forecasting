@@ -29,6 +29,7 @@ EXPECTED = {
     "harq",
     "lgbm",
     "xgb",
+    "lstm",
     "ens_eq",
     "ens_inv",
 }

@@ -40,6 +40,15 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+
+# Import order matters on macOS: if torch's OpenMP runtime is loaded before lightgbm/xgboost, any
+# later lightgbm/xgboost training aborts ("OMP: Error #179 pthread_mutex_init failed"). Loading
+# the GBM libraries first keeps the `lstm` + `lgbm`/`xgb` pair usable in one process.
+try:  # pragma: no cover - environment dependent
+    import lightgbm  # noqa: F401
+    import xgboost  # noqa: F401
+except ImportError:  # pragma: no cover
+    pass
 import torch
 from numpy.lib.stride_tricks import sliding_window_view
 from numpy.typing import NDArray
@@ -268,8 +277,10 @@ class LSTMVol(BaseVolModel):
 
         with _runtime(self.seed, self.num_threads):
             net, best_state = self._train(Xtr, ytr, Xva, yva)
-        net.load_state_dict(best_state)
-        resid = (yva - self._forward(net, Xva)) * self._z_sd
+            net.load_state_dict(best_state)
+            # inside the context: torch runs with `num_threads` (multi-threaded OpenMP inference
+            # deadlocks on macOS once lightgbm/xgboost have loaded their own libomp)
+            resid = (yva - self._forward(net, Xva)) * self._z_sd
         self._sigma2 = float(np.mean(resid**2))
         self._net = net
         self._n_train, self._n_val = int(tr_pos.size), int(va_pos.size)
