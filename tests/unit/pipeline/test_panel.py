@@ -10,7 +10,13 @@ from tests.conftest import make_synthetic_klines
 from volforecast.contracts import KLINE_COLUMNS, PANEL_COLUMNS
 from volforecast.features.realized import daily_realized_measures
 from volforecast.pipeline import panel as panel_mod
-from volforecast.pipeline.panel import build_panel, content_hash, load_klines, panel_paths
+from volforecast.pipeline.panel import (
+    build_panel,
+    content_hash,
+    load_cached_panel,
+    load_klines,
+    panel_paths,
+)
 
 SYMBOL = "TESTUSDT"
 
@@ -117,3 +123,36 @@ def test_content_hash_is_sensitive_and_stable(synthetic_panel: pd.DataFrame) -> 
     changed = synthetic_panel.copy()
     changed.iloc[10, 0] += 1e-12
     assert content_hash(changed) != h1
+
+
+def test_load_cached_panel_needs_no_raw_and_never_writes(
+    hive_root: tuple[Path, pd.DataFrame], tmp_path: Path
+) -> None:
+    import shutil
+
+    root, _ = hive_root
+    panel, digest = build_panel(root, SYMBOL)
+    only_daily = tmp_path / "daily_only"  # no raw/ at all, as on the remote GPU box
+    pq, meta = panel_paths(root, SYMBOL)
+    dst_pq, dst_meta = panel_paths(only_daily, SYMBOL)
+    dst_pq.parent.mkdir(parents=True)
+    shutil.copy(pq, dst_pq)
+    shutil.copy(meta, dst_meta)
+    before = sorted(p.name for p in only_daily.rglob("*"))
+    got, got_digest = load_cached_panel(only_daily, SYMBOL)
+    assert got_digest == digest
+    pd.testing.assert_frame_equal(got, panel, check_freq=False)
+    assert sorted(p.name for p in only_daily.rglob("*")) == before
+    with pytest.raises(FileNotFoundError):
+        load_cached_panel(only_daily, "NOPEUSDT")
+
+
+def test_load_cached_panel_rejects_tampered_parquet(hive_root: tuple[Path, pd.DataFrame]) -> None:
+    root, _ = hive_root
+    panel, _ = build_panel(root, SYMBOL)
+    pq, _ = panel_paths(root, SYMBOL)
+    bad = panel.copy()
+    bad.iloc[0, 0] = bad.iloc[0, 0] + 1.0
+    bad.to_parquet(pq)
+    with pytest.raises(ValueError, match="hash"):
+        load_cached_panel(root, SYMBOL)

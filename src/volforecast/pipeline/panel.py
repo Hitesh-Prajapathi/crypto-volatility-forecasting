@@ -101,3 +101,21 @@ def build_panel(
     )
     log.info("panel_built", symbol=symbol, n_days=len(panel), hash=digest[:12])
     return panel, digest
+
+
+def load_cached_panel(data_root: str | Path, symbol: str) -> tuple[pd.DataFrame, str]:
+    """Read the precomputed daily panel only (no raw klines needed); never writes.
+
+    For running a backtest from the ``daily/`` cache alone (e.g. on a remote GPU box that only
+    received the panels). The parquet content is hashed and must equal the hash recorded in
+    ``panel.meta.json``; the raw-file signature is deliberately not checked.
+    """
+    pq, meta_path = panel_paths(Path(data_root), symbol)
+    if not (pq.exists() and meta_path.exists()):
+        raise FileNotFoundError(f"no cached panel for {symbol} under {Path(data_root) / 'daily'}")
+    panel = pd.read_parquet(pq)
+    expected = str(json.loads(meta_path.read_text()).get("hash"))
+    actual = content_hash(panel)
+    if actual != expected:
+        raise ValueError(f"cached panel for {symbol} fails its content hash check")
+    return panel, actual
