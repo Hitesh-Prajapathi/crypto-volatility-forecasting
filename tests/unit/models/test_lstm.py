@@ -101,6 +101,35 @@ def test_seed_determinism(synthetic_panel: pd.DataFrame) -> None:
     assert va != vc
 
 
+def test_device_cpu_and_auto_on_cpu_only_machine(synthetic_panel: pd.DataFrame) -> None:
+    import torch
+
+    p = synthetic_panel.iloc[:N_TRAIN]
+    cpu = build_model("lstm", seed=3, device="cpu", **FAST).fit(p, 1)
+    default = build_model("lstm", seed=3, **FAST).fit(p, 1)
+    assert cpu.predict_variance(p, 1) == default.predict_variance(p, 1)  # cpu is the default
+    assert isinstance(cpu, LSTMVol)
+    assert cpu.get_params()["resolved_device"] == "cpu"
+    auto = build_model("lstm", seed=3, device="auto", **FAST)
+    assert isinstance(auto, LSTMVol)
+    expected = "cuda" if torch.cuda.is_available() else "cpu"  # auto never picks mps
+    assert auto.get_params()["resolved_device"] == expected
+    if expected == "cpu":
+        assert auto.fit(p, 1).predict_variance(p, 1) == cpu.predict_variance(p, 1)
+    v = cpu.predict_variance(p, 1)
+    assert type(v) is float  # forecasts are plain CPU floats
+
+
+def test_device_validation() -> None:
+    import torch
+
+    with pytest.raises(ValueError, match="device"):
+        build_model("lstm", device="tpu", **FAST)
+    if not torch.cuda.is_available():
+        with pytest.raises(RuntimeError, match="CUDA"):
+            build_model("lstm", device="cuda", **FAST)
+
+
 def test_global_rng_state_untouched(synthetic_panel: pd.DataFrame) -> None:
     import random
 

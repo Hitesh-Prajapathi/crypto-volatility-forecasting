@@ -27,12 +27,23 @@ Reproducibility: weights, minibatch order and dropout are driven by ``seed`` (to
 python RNG states are saved, seeded and restored around each call, so the model does not disturb
 global RNG state); deterministic algorithms are requested and torch runs on CPU with
 ``num_threads`` threads (default 1; multithreaded reductions may differ in the last bits).
+
+Devices: ``device`` is ``"cpu"`` (default, bit-identical to the original CPU-only behaviour),
+``"cuda"``, ``"mps"`` or ``"auto"`` (cuda if available, else cpu; mps is never auto-selected).
+An explicit ``"cuda"``/``"mps"`` that is unavailable raises ``RuntimeError``. The network is
+initialised on CPU under the seed and then moved, minibatch order comes from a CPU generator, and
+forecasts are returned as plain CPU floats. On CUDA, cudnn is put in deterministic mode
+(``benchmark=False``) and ``CUBLAS_WORKSPACE_CONFIG=:4096:8`` is set before the first CUDA call, but
+``use_deterministic_algorithms`` keeps ``warn_only=True`` (some CUDA kernels have no deterministic
+variant): GPU runs are repeatable on the same hardware/software stack but are NOT bit-identical to
+CPU runs (different reduction order and dropout RNG streams), so compare them statistically.
 """
 
 from __future__ import annotations
 
 import copy
 import math
+import os
 import random
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -69,6 +80,8 @@ from volforecast.models.base import BaseVolModel, BoolArray, FloatArray, ModelIn
 log = get_logger(__name__)
 
 F32Array = NDArray[np.float32]
+DEVICES = ("cpu", "cuda", "mps", "auto")
+CUBLAS_WORKSPACE = ":4096:8"
 JUMP_EPS = 1e-8
 MIN_TRAIN_ROWS = 120
 MIN_LOOKBACK, MAX_LOOKBACK = 22, 66
@@ -120,23 +133,44 @@ def lstm_features(panel: pd.DataFrame) -> FloatArray:
     return out
 
 
+def resolve_device(device: str) -> str:
+    """Map ``cpu|cuda|mps|auto`` to a concrete device; explicit unavailable devices raise."""
+    if device not in DEVICES:
+        raise ValueError(f"device must be one of {DEVICES}, got {device!r}")
+    if device == "auto":
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    if device == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("device='cuda' requested but CUDA is not available")
+    if device == "mps" and not torch.backends.mps.is_available():
+        raise RuntimeError("device='mps' requested but MPS is not available")
+    return device
+
+
 @contextmanager
-def _runtime(seed: int, num_threads: int) -> Iterator[None]:
+def _runtime(seed: int, num_threads: int, device: str = "cpu") -> Iterator[None]:
     """Seed torch/numpy/python, force determinism and thread count; restore everything after."""
     py_state, np_state = random.getstate(), np.random.get_state()  # noqa: NPY002
     prev_threads = torch.get_num_threads()
     prev_det = torch.are_deterministic_algorithms_enabled()
     prev_warn = torch.is_deterministic_algorithms_warn_only_enabled()
+    cuda = device == "cuda"
+    prev_cudnn = (torch.backends.cudnn.deterministic, torch.backends.cudnn.benchmark)
+    if cuda:
+        # must be set before the first cuBLAS call of the process to take effect
+        os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", CUBLAS_WORKSPACE)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
     random.seed(seed)
     np.random.seed(seed % (2**32))  # noqa: NPY002
     torch.set_num_threads(num_threads)
     torch.use_deterministic_algorithms(True, warn_only=True)
     try:
-        with torch.random.fork_rng(devices=[]):
-            torch.manual_seed(seed)
+        with torch.random.fork_rng(devices=[torch.cuda.current_device()] if cuda else []):
+            torch.manual_seed(seed)  # also seeds the CUDA generators
             yield
     finally:
         torch.use_deterministic_algorithms(prev_det, warn_only=prev_warn)
+        torch.backends.cudnn.deterministic, torch.backends.cudnn.benchmark = prev_cudnn
         torch.set_num_threads(prev_threads)
         random.setstate(py_state)
         np.random.set_state(np_state)  # noqa: NPY002
@@ -181,6 +215,7 @@ class LSTMVol(BaseVolModel):
         val_frac: float = 0.15,
         seed: int = 0,
         num_threads: int = 1,
+        device: str = "cpu",
         drop_incomplete_targets: bool = True,
     ) -> None:
         super().__init__(drop_incomplete_targets)
@@ -208,6 +243,10 @@ class LSTMVol(BaseVolModel):
         self.val_frac = val_frac
         self.seed = seed
         self.num_threads = num_threads
+        self.device = device
+        self._device = resolve_device(device)  # validates; concrete cpu|cuda|mps
+        if self._device == "cuda" and torch.cuda.is_available():
+            os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", CUBLAS_WORKSPACE)
         self._net: _Net | None = None
         self._mu: FloatArray | None = None  # feature mean, fitted on the training window only
         self._sd: FloatArray | None = None
@@ -238,8 +277,9 @@ class LSTMVol(BaseVolModel):
     def _forward(self, net: _Net, x: FloatArray) -> FloatArray:
         net.eval()
         with torch.no_grad():
-            out = net(torch.from_numpy(np.ascontiguousarray(x, dtype=np.float32)))
-        return np.asarray(out.numpy(), dtype=float)
+            xt = torch.from_numpy(np.ascontiguousarray(x, dtype=np.float32)).to(self._device)
+            out = net(xt)
+        return np.asarray(out.cpu().numpy(), dtype=float)
 
     # --------------------------------------------------------------------- fitting
     def _fit(self, panel: pd.DataFrame, h: int, y: FloatArray, ok: BoolArray) -> None:
@@ -275,7 +315,7 @@ class LSTMVol(BaseVolModel):
         ytr = ((z_tr - self._z_mu) / self._z_sd).astype(np.float32)
         yva = ((z_va - self._z_mu) / self._z_sd).astype(np.float32)
 
-        with _runtime(self.seed, self.num_threads):
+        with _runtime(self.seed, self.num_threads, self._device):
             net, best_state = self._train(Xtr, ytr, Xva, yva)
             net.load_state_dict(best_state)
             # inside the context: torch runs with `num_threads` (multi-threaded OpenMP inference
@@ -290,19 +330,21 @@ class LSTMVol(BaseVolModel):
         self, Xtr: FloatArray, ytr: F32Array, Xva: FloatArray, yva: F32Array
     ) -> tuple[_Net, dict[str, torch.Tensor]]:
         net = _Net(Xtr.shape[2], self.hidden_size, self.num_layers, self.dropout)
+        net.to(self._device)  # initial weights are drawn on CPU, then moved
         opt = torch.optim.Adam(
             net.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay
         )
         loss_fn = nn.MSELoss()
         gen = torch.Generator().manual_seed(self.seed)
-        xt, yt = torch.from_numpy(Xtr), torch.from_numpy(ytr)
-        xv, yv = torch.from_numpy(Xva), torch.from_numpy(yva)
+        dev = self._device
+        xt, yt = torch.from_numpy(Xtr).to(dev), torch.from_numpy(ytr).to(dev)
+        xv, yv = torch.from_numpy(Xva).to(dev), torch.from_numpy(yva).to(dev)
         best = math.inf
         best_state = copy.deepcopy(net.state_dict())
         self._best_epoch, bad = 0, 0
         for epoch in range(1, self.max_epochs + 1):
             net.train()
-            perm = torch.randperm(xt.shape[0], generator=gen)  # shuffle inside train only
+            perm = torch.randperm(xt.shape[0], generator=gen).to(dev)  # shuffle inside train only
             for i in range(0, xt.shape[0], self.batch_size):
                 idx = perm[i : i + self.batch_size]
                 opt.zero_grad()
@@ -333,7 +375,7 @@ class LSTMVol(BaseVolModel):
             )
         feats = lstm_features(panel.iloc[-self.lookback :])
         x = self._scale(feats)[None, :, :]  # stored training-window scaler, never refitted
-        with _runtime(self.seed, self.num_threads):
+        with _runtime(self.seed, self.num_threads, self._device):
             zs = float(self._forward(self._net, x)[0])
         zs = float(np.clip(zs, -MAX_STD_LOG_PRED, MAX_STD_LOG_PRED))
         return math.exp(zs * self._z_sd + self._z_mu + 0.5 * self._sigma2)
@@ -359,6 +401,8 @@ class LSTMVol(BaseVolModel):
             "val_frac": self.val_frac,
             "seed": self.seed,
             "num_threads": self.num_threads,
+            "device": self.device,
+            "resolved_device": self._device,
             "features": list(FEATURE_NAMES),
             "scaler_mean": lst(self._mu),
             "scaler_std": lst(self._sd),
