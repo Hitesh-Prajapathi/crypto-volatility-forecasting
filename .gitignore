@@ -65,3 +65,8 @@ mlruns/
 /reports/figures/
 /reports/results.json
 /reports/tables_readme.md
+
+# Generated static dashboard (python -m volforecast.site) and CI scratch
+/_site/
+/_ci/
+/.pages-state/

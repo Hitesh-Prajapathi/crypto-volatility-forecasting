@@ -263,7 +263,7 @@ The design decisions are recorded as [ADRs](docs/adr/). The [runbook](docs/runbo
 **Not done**
 - An LSTM challenger.
 - A cluster deployment with HPA measurements.
-- A live dashboard.
+- A live dashboard: built and tested, but goes live at https://hitesh-prajapathi.github.io/crypto-volatility-forecasting/ only once GitHub Pages is enabled (source: GitHub Actions); see [docs/platform.md](docs/platform.md#10-public-dashboard-github-pages).
 
 The plan is in [docs/execution_plan.md](docs/execution_plan.md).
 

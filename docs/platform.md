@@ -174,3 +174,29 @@ p(95) < 100 ms, `http_req_failed` rate < 0.5%.
 * No plaintext secrets in git: Sealed Secrets (kind) or External Secrets (cloud). The chart's
   `secrets.create` is a dev-only escape hatch and refuses empty values. `.env.example` holds
   dev-only defaults; `.env` must be git-ignored.
+
+## 10. Public dashboard (GitHub Pages)
+
+`python -m volforecast.site --out _site [--database-url ...] [--demo] [--publish-store]` (or
+`make site`) writes a fully static site: `index.html`, `app.js`, `style.css`, `data/forecasts.json`
+(per asset and horizon: latest forecast, annualized vol, 99% VaR for h=1, forecast vs realized
+history, cumulative QLIKE vs HAR) and `data/backtest_summary.json` (parsed from the committed
+`reports/tables.md`). Plotly is loaded from a pinned jsDelivr URL; there is no build step. An empty
+store is valid: the page says the track record starts with the first run and shows no numbers.
+`--demo` puts a red "DEMO DATA" banner on the page; the workflow never passes it.
+
+`.github/workflows/pages.yml` runs daily at 01:30 UTC (and on demand): restore state, `ingest`,
+`forecast`, build, `upload-pages-artifact`, `deploy-pages`.
+
+* **Persistence.** The sqlite forecast store and the parquet bars live in `actions/cache`
+  (`pages-state-<run id>`, restored via the `pages-state-` prefix). If the cache is evicted, the
+  store is downloaded from the live site's `data/store.db` (published by `--publish-store`); only
+  the bars are then re-bootstrapped from 2017. If both are lost, the record restarts and the page
+  says so. Nothing is committed to git.
+* **Champion in CI.** There is no MLflow server in the job, so no `@champion` exists and the
+  forecast flow's fallback is used: `xgb` (a CI-only copy of `configs/production.yaml` sets
+  `fallback_model: xgb`) is refit on the full history at each origin. Rows are stored as role
+  `fallback`, `model_version` `fallback:xgb`, and the page shows that label. The live dashboard is
+  therefore a track record of the daily-refit XGBoost, not of a registry-promoted model.
+* **Going live.** Repository Settings, Pages, Source: "GitHub Actions"; then run the `pages`
+  workflow once (`workflow_dispatch`). The first run bootstraps the full history and is slow.
