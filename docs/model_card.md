@@ -31,6 +31,29 @@ Baselines configured in `configs/backtest.yaml`: naive, EWMA, EWMA on RV, GARCH 
 (Student-t), HAR, log-HAR, HAR-CJ, SHAR, HAR-Q; HAR is the benchmark. Gradient boosting and an
 ensemble are in progress (M3); deep models are in the plan.
 
+### LSTM challenger (`lstm`)
+
+A small recurrent challenger for the same h-day cumulative realized variance target
+([ADR-0012](adr/0012-lstm-challenger.md)); it needs the optional `dl` extra (torch, CPU only) and is
+**not** part of `configs/backtest.yaml` or the default `make backtest` (run it with
+`configs/backtest_lstm.yaml`).
+
+- Input: the last `lookback` days (default 22, allowed 22-66) of a per-day vector: log RV, log BPV,
+  log jump, log RS+, log RS-, sqrt(RQ), return, |return| and the weekday (sin/cos).
+- Network: 1-2 layer LSTM (hidden size 32, dropout 0.1), linear head, Adam, at most 50 epochs, early
+  stopping with patience 5 on the chronologically last 15% of the training window (an h-day embargo
+  separates it from the training block). The target is `log(sum_{k=1..h} RV_{t+k})`; forecasts are
+  `exp(f + sigma^2 / 2)` with `sigma^2` the validation-block log-residual variance (same convention
+  as the GBMs, but the residuals come from the early-stopping block rather than a separate
+  out-of-fold model).
+- Leakage control: feature and target standardisation are estimated once per fit on the training
+  window and stored on the model; `predict_variance` never re-estimates them (this fixes the legacy
+  full-sample scaler defect, audit item A5 in [ADR-0002](adr/0002-legacy-results-retracted.md)).
+- Reproducibility: seeded per instance (`seed`), CPU, one thread by default, deterministic
+  algorithms requested. Different seeds give different networks, so evaluation reports the spread
+  over seeds. Hyperparameters are fixed a priori and were not tuned on the test period.
+- Cost: each refit trains a network, so the configuration refits every 30 origins.
+
 ## Evaluation protocol
 
 - Expanding-window walk-forward from 2021-01-01, minimum 365 training days; tuning happens inside the

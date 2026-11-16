@@ -22,6 +22,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - M7: Helm chart, kind bootstrap, Argo CD app-of-apps and the CD workflow (not yet run on a cluster).
 - M8: Grafana dashboards, Prometheus alert rules, k6 load test.
 - Documentation: `docs/platform.md`, `docs/runbook.md`, `docs/slo.md` and `docs/model_card.md`.
+- LSTM challenger `lstm` (optional `dl` extra, CPU): log-target h-day RV forecaster on 22-66 day sequences of realized measures with a per-fit scaler, chronological early-stopping split and seeded determinism ([ADR-0012](docs/adr/0012-lstm-challenger.md)); evaluation config `configs/backtest_lstm.yaml`, not part of the default backtest.
 
 ### Changed
 
