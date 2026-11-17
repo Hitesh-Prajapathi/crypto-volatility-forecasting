@@ -1,7 +1,7 @@
 # 0012. LSTM challenger for h-day realized variance
 
 - Status: Accepted
-- Date: 2026-11-16
+- Date: 2026-11-17
 
 ## Context
 
@@ -38,6 +38,60 @@ interface:
 - It is not in `configs/backtest.yaml`; `configs/backtest_lstm.yaml` runs it against `har`,
   `log_har_dow` and `xgb`. The pipeline requires unique model names, so every seed is a separate
   backtest run; results are reported as mean and standard deviation over seeds.
+
+## Results
+
+Five seeds (0-4), expanding-window walk-forward from 2021-01-01, BTC/ETH/SOL, h = 1 and 5, run on a
+Kaggle T4 at code SHA 708fbb2 with no failures. Full table, definitions and the commands to
+reproduce it: [docs/results/lstm_seeds.md](../results/lstm_seeds.md). QLIKE ratios, mean over seeds
+(seed std is 0.003-0.018 in every cell):
+
+| asset | h | LSTM/HAR | LSTM/log_har_dow | LSTM/xgb | DM p vs log_har_dow (seeds < 0.05) | LSTM in MCS 90% |
+|---|---|---|---|---|---|---|
+| BTCUSDT | 1 | 0.744 | 0.919 | 1.042 | 0.008 (5/5) | 5/5 |
+| BTCUSDT | 5 | 0.753 | 0.900 | 0.944 | 0.035 (5/5) | 5/5 |
+| ETHUSDT | 1 | 0.687 | 0.895 | 0.967 | 0.024 (5/5) | 5/5 |
+| ETHUSDT | 5 | 0.705 | 0.911 | 0.939 | 0.171 (0/5) | 5/5 |
+| SOLUSDT | 1 | 0.689 | 0.979 | 1.008 | 0.200 (0/5) | 5/5 |
+| SOLUSDT | 5 | 0.744 | 1.071 | 0.968 | 0.973 (0/5) | 1/5 |
+
+- Against HAR the LSTM has 25-31% lower QLIKE in all six cells, significant (one-sided DM p < 0.05) in
+  every seed. This is shared with the other challengers: xgb and log_har_dow are also 20-32% and 16-31% below HAR.
+- Against log_har_dow, the stronger benchmark, the LSTM is lower in five of six cells (by 2-11%) but
+  significantly so only on BTC at h = 1 and h = 5 and ETH at h = 1 (all five seeds each; the BTC h = 5
+  and ETH h = 1 mean p-values, 0.035 and 0.024, are close to the threshold). ETH at h = 5 is lower
+  but not significant, SOL at h = 1 is a tie, and SOL at h = 5 is **worse** (ratio 1.071).
+- Against xgb, the LSTM is better at h = 5 on all three assets (ratios 0.94-0.97) and on ETH at
+  h = 1 (0.967), and worse on BTC at h = 1 (1.042) and SOL at h = 1 (1.008). The table does not test
+  this comparison, so a supplementary one-sided DM test of lstm vs xgb on the same QLIKE losses (HLN
+  correction, per seed, from `forecasts.parquet`) is quoted here. It is not significant on average
+  anywhere: the best cells are BTC h = 5 (mean p 0.081, 2/5 seeds below 0.05) and ETH h = 5 (mean
+  p 0.077, 3/5 seeds), and on BTC h = 1, where xgb is ahead, the two-sided p is 0.15-0.33. There
+  is no multiplicity correction across the six cells.
+- Seed spread is small relative to the effect sizes (std/mean at most about 2%); the five seeds
+  produce highly correlated forecasts (log-forecast correlation 0.992-0.993 on BTC h = 1).
+- The seed-independent models (har, log_har_dow, xgb) have bit-identical forecasts in all five seeds,
+  and the LSTM forecasts are finite and positive with the same origins as the other models. A local
+  CPU seed-0 run on BTC h = 1 gave 0.742 and 0.916 for LSTM/HAR and LSTM/log_har_dow, consistent
+  with the GPU numbers; xgb/HAR there was 0.717 against 0.714 here, a small cross-platform difference.
+
+Caveats: one venue and one test period with a few dominant episodes; six cells; hyperparameters
+fixed a priori, not tuned, so the numbers say nothing about a tuned network; the GPU runs are not
+bit-identical to CPU runs.
+
+## Decision outcome
+
+The LSTM is a competitive challenger but not a better one. It clearly beats HAR, and it beats
+log_har_dow with statistical support on BTC (h = 1, 5) and ETH (h = 1) at gains of about 8-11% in
+QLIKE, but not on ETH at h = 5 or SOL, where it ties or loses (SOL at h = 5 is 7% worse). Against xgb
+the LSTM is ahead at h = 5 and behind at h = 1 on BTC and SOL, with no significant difference in
+either direction, and it is not cheaper than xgb in these runs (115-320 s of walk-forward per asset and horizon on a
+T4, against 250-380 s for xgb on four CPU cores) while adding an optional torch dependency. **Production stays
+xgb**: nothing here justifies replacing it, and `lstm` is not a retrain candidate. The model stays in
+the repository as a documented challenger, evaluated by `configs/backtest_lstm.yaml` and the
+five-seed table. A change of this decision would need a result that holds against xgb, for example
+a significant h = 5 improvement on a longer sample or with a pre-registered tuning protocol inside the
+walk-forward ([ADR-0005](0005-tuning-inside-walk-forward.md)).
 
 ## Consequences
 

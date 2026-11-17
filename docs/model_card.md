@@ -53,6 +53,14 @@ A small recurrent challenger for the same h-day cumulative realized variance tar
   algorithms requested. Different seeds give different networks, so evaluation reports the spread
   over seeds. Hyperparameters are fixed a priori and were not tuned on the test period.
 - Cost: each refit trains a network, so the configuration refits every 30 origins.
+- Evaluation: five seeds, walk-forward on BTC, ETH and SOL at h = 1 and 5 (run on a Kaggle T4 GPU;
+  see [docs/results/lstm_seeds.md](results/lstm_seeds.md) for the table and the commands). Summary,
+  without the numbers: the LSTM is clearly better than HAR everywhere and better than log_har_dow
+  with statistical support only for BTC (h = 1, 5) and ETH (h = 1); it ties on SOL at h = 1 and is
+  worse on SOL at h = 5. Against xgb it is ahead at h = 5 and behind on BTC and SOL at h = 1, with no
+  significant difference. It stays a challenger: xgb remains the production candidate
+  ([ADR-0012](adr/0012-lstm-challenger.md)). Hyperparameters were not tuned, so this says nothing
+  about a tuned network; the test period is short and from one venue.
 
 ## Evaluation protocol
 
