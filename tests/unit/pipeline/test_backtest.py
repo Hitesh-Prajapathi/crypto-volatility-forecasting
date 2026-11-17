@@ -22,6 +22,16 @@ def patched_panels(monkeypatch: pytest.MonkeyPatch, synthetic_panel: pd.DataFram
     monkeypatch.setattr(bt, "build_panel", fake_build)
 
 
+def test_run_backtest_panel_builder_hook(synthetic_panel: pd.DataFrame, tmp_path: Path) -> None:
+    cfg = make_cfg(assets=("AAA",), models=("har",))
+
+    def mine(root: Path, symbol: str) -> tuple[pd.DataFrame, str]:
+        return synthetic_panel, "hook-hash"
+
+    fc = bt.run_backtest(cfg, tmp_path, tmp_path / "run", panel_builder=mine)
+    assert set(fc["data_hash"]) == {"hook-hash"}
+
+
 def test_run_backtest_end_to_end(patched_panels: None, tmp_path: Path) -> None:
     cfg = make_cfg(assets=("AAA", "BBB"), models=("har", "naive", "log_har"))
     out = tmp_path / "run"

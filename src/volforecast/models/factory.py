@@ -18,6 +18,13 @@ def _garch(**params: Any) -> VolModel:
     return GarchModel(**params)
 
 
+def _lstm(**params: Any) -> VolModel:
+    """LSTM challenger; torch (the optional ``dl`` extra) is imported only when it is built."""
+    from volforecast.models.lstm import LSTMVol
+
+    return LSTMVol(**params)
+
+
 def _gjr_garch(**params: Any) -> VolModel:
     params.setdefault("o", 1)
     return GarchModel(**params)
@@ -72,6 +79,7 @@ MODEL_FACTORY: dict[str, Callable[..., VolModel]] = {
     "harq": HARQ,
     "lgbm": LightGBMVol,
     "xgb": XGBoostVol,
+    "lstm": _lstm,
     "ens_eq": _ens_eq,
     "ens_inv": _ens_inv,
 }

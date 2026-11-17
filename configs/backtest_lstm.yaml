@@ -1,0 +1,30 @@
+# LSTM challenger evaluation (see docs/adr/0012-lstm-challenger.md). NOT part of `make backtest`.
+#
+# The pipeline requires unique model names, so one run holds one LSTM seed. Run the seeds as
+# separate backtests that override `params.seed` (see docs/model_card.md, "LSTM challenger"),
+# e.g. for seed in 0 1 2 3 4: copy this file with `seed: <k>` and `--out artifacts/backtest_lstm_s<k>`.
+#
+#   uv run python -m volforecast backtest --config configs/backtest_lstm.yaml \
+#       --data-root <data> --out artifacts/backtest_lstm
+#   uv run python -m volforecast report --run artifacts/backtest_lstm --out reports_lstm
+#
+# Hyperparameters are fixed a priori (library-style defaults); they are NOT tuned on the test
+# period. refit_every is large because every refit trains a network.
+assets: [BTCUSDT, ETHUSDT, SOLUSDT]  # BTC first: pass `--assets BTCUSDT`
+horizons: [1, 5]
+first_origin: 2021-01-01
+min_train: 365
+window: expanding
+benchmark: har
+n_jobs: -1
+models:
+  - {name: har, refit_every: 1}
+  - {name: log_har_dow, refit_every: 1}
+  - {name: xgb, refit_every: 7}
+  - name: lstm
+    refit_every: 30
+    params: {seed: 0, lookback: 22, hidden_size: 32, num_layers: 1, dropout: 0.1, max_epochs: 50, patience: 5}
+var:
+  alphas: [0.05, 0.01]
+  dists: [normal, normal_cal, t, t_cal, fhs]
+  min_resid: 250

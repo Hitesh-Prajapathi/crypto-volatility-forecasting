@@ -23,6 +23,8 @@ All notable changes to this project are documented here. The format follows [Kee
 - M8: Grafana dashboards, Prometheus alert rules, k6 load test.
 - M9: public dashboard for GitHub Pages: `python -m volforecast.site` (`make site`) builds a static page (Plotly, light/dark) from the forecast store and `reports/tables.md`, and `.github/workflows/pages.yml` ingests, forecasts and deploys it daily (not yet run on GitHub; Pages must be enabled with source GitHub Actions).
 - Documentation: `docs/platform.md`, `docs/runbook.md`, `docs/slo.md` and `docs/model_card.md`.
+- LSTM challenger `lstm` (optional `dl` extra, CPU): log-target h-day RV forecaster on 22-66 day sequences of realized measures with a per-fit scaler, chronological early-stopping split and seeded determinism ([ADR-0012](docs/adr/0012-lstm-challenger.md)); evaluation config `configs/backtest_lstm.yaml`, not part of the default backtest.
+- LSTM five-seed evaluation on a Kaggle T4 (`scripts/kaggle`, `scripts/kaggle/aggregate_seeds.py`, results in `docs/results/lstm_seeds.md`): the LSTM beats HAR everywhere and log_har_dow on BTC (h=1, 5) and ETH (h=1), but not xgb significantly; xgb stays the production model (ADR-0012 accepted).
 
 ### Changed
 

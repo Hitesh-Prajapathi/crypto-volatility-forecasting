@@ -86,13 +86,17 @@ def run_backtest(
     data_root: str | Path,
     out_dir: str | Path,
     assets: Sequence[str] | None = None,
+    panel_builder: PanelBuilder | None = None,
 ) -> pd.DataFrame:
     """Run the walk-forward backtest for every asset and write the run artifacts.
 
     ``assets`` optionally restricts the configured assets (a subset of ``cfg.assets``).
+    ``panel_builder`` maps ``(data_root, symbol)`` to ``(panel, content_hash)``; the default builds
+    (or cache-reads) from raw klines, ``panel.load_cached_panel`` reads the daily cache only.
     Returns the combined forecasts table.
     """
     root, out = Path(data_root), Path(out_dir)
+    build = build_panel if panel_builder is None else panel_builder  # late-bound (patchable)
     chosen = list(cfg.assets) if assets is None else list(assets)
     if not chosen:
         raise ValueError("no assets selected")
@@ -109,7 +113,7 @@ def run_backtest(
 
     for asset in chosen:
         t0 = time.perf_counter()
-        panel, data_hash = build_panel(root, asset)
+        panel, data_hash = build(root, asset)
         panel.to_parquet(out / "panels" / f"{asset}.parquet")
         t_panel = time.perf_counter() - t0
         t1 = time.perf_counter()
