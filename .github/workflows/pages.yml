@@ -1,0 +1,123 @@
+name: pages
+
+# Always-on public dashboard on GitHub Pages (docs/platform.md, "Public dashboard").
+# Daily: ingest the newest bars -> forecast -> build the static site -> deploy.
+#
+# State that must survive between runs (the track record accumulates in a sqlite forecast store):
+#   1. actions/cache (primary): key pages-state-<run id>, restored through the pages-state- prefix,
+#      i.e. always the newest entry. Holds the store AND the parquet bars, so the daily ingest only
+#      downloads the last day. Caches unused for 7 days are evicted; a daily schedule keeps it warm.
+#   2. The deployed site publishes data/store.db; if the cache is gone the job downloads it from
+#      the live site (the track record survives; only the bars are re-bootstrapped from 2017).
+# Trade-off: nothing is committed to git and no extra branch is needed, but the history lives in
+# a best-effort cache plus the last deployed artifact. If both are lost the record restarts
+# (the page then says so: "track record starts <date>").
+#
+# Champion: there is no MLflow server in CI, so the registry has no @champion and the forecast
+# flow's documented fallback is used: the configured fallback model (xgb here, via a CI-only copy
+# of configs/production.yaml) is refit on the full ingested history at every origin. Rows are
+# stored as role "fallback", model_version "fallback:xgb" and the page labels them as such.
+
+on:
+  schedule:
+    - cron: "30 1 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  MLFLOW_DISABLE_AGENT_HINT: "1"
+  PAGES_MODEL: xgb
+  STATE_DIR: .pages-state
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      VOLF_DATA_DIR: ${{ github.workspace }}/.pages-state/data
+      VOLF_DATABASE_URL: sqlite:///${{ github.workspace }}/.pages-state/store.db
+      MLFLOW_TRACKING_URI: sqlite:///${{ github.workspace }}/_ci/mlflow.db
+      VOLF_PRODUCTION_CONFIG: ${{ github.workspace }}/_ci/production.yaml
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen --no-dev --extra serve --extra mlops
+
+      - name: Restore persisted state (cache)
+        id: state
+        uses: actions/cache/restore@v4
+        with:
+          path: .pages-state
+          key: pages-state-${{ github.run_id }}
+          restore-keys: pages-state-
+
+      - name: Restore the store from the live site if the cache is empty
+        run: |
+          mkdir -p "$STATE_DIR" _ci
+          if [ ! -f "$STATE_DIR/store.db" ]; then
+            url="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_EVENT_REPOSITORY_NAME}/data/store.db"
+            echo "no cached store, trying $url"
+            if curl -fsSL --retry 2 "$url" -o "$RUNNER_TEMP/store.db" \
+               && head -c 15 "$RUNNER_TEMP/store.db" | grep -q "SQLite format 3"; then
+              mv "$RUNNER_TEMP/store.db" "$STATE_DIR/store.db"
+              echo "restored the store from the live site"
+            else
+              echo "no previous store: the track record starts today"
+            fi
+          fi
+        env:
+          GITHUB_EVENT_REPOSITORY_NAME: ${{ github.event.repository.name }}
+
+      - name: CI production config (fallback model = ${{ env.PAGES_MODEL }})
+        run: |
+          sed "s/^fallback_model: .*/fallback_model: ${PAGES_MODEL}/" configs/production.yaml > "$VOLF_PRODUCTION_CONFIG"
+          grep '^fallback_model' "$VOLF_PRODUCTION_CONFIG"
+
+      - name: Ingest the newest 5-minute bars (network)
+        run: |
+          if [ -d "$VOLF_DATA_DIR" ] && [ -n "$(ls -A "$VOLF_DATA_DIR" 2>/dev/null)" ]; then
+            uv run python -m volforecast.flows.ingest
+          else
+            echo "cold start: bootstrapping the full history (slow, once)"
+            uv run python -m volforecast.flows.ingest --start 2017-08-17
+          fi
+
+      - name: Forecast (fallback model refit on the ingested history)
+        run: uv run python -m volforecast.flows.forecast
+
+      - name: Save state (cache)
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            .pages-state
+            !.pages-state/data/cache
+          key: pages-state-${{ github.run_id }}
+
+      - name: Build the static site
+        run: uv run python -m volforecast.site --out _site --publish-store
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

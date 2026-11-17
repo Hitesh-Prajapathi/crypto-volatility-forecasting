@@ -21,6 +21,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - M6: API and jobs container images and a Docker Compose local stack (API, MLflow, Prefect, MinIO, Postgres, Prometheus, Grafana).
 - M7: Helm chart, kind bootstrap, Argo CD app-of-apps and the CD workflow (not yet run on a cluster).
 - M8: Grafana dashboards, Prometheus alert rules, k6 load test.
+- M9: public dashboard for GitHub Pages: `python -m volforecast.site` (`make site`) builds a static page (Plotly, light/dark) from the forecast store and `reports/tables.md`, and `.github/workflows/pages.yml` ingests, forecasts and deploys it daily (not yet run on GitHub; Pages must be enabled with source GitHub Actions).
 - Documentation: `docs/platform.md`, `docs/runbook.md`, `docs/slo.md` and `docs/model_card.md`.
 - LSTM challenger `lstm` (optional `dl` extra, CPU): log-target h-day RV forecaster on 22-66 day sequences of realized measures with a per-fit scaler, chronological early-stopping split and seeded determinism ([ADR-0012](docs/adr/0012-lstm-challenger.md)); evaluation config `configs/backtest_lstm.yaml`, not part of the default backtest.
 
