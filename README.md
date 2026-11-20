@@ -240,7 +240,7 @@ make up                                                 # full local stack via d
 |---|---|---|
 | Data | `src/volforecast/data/` | Binance Vision downloads with CHECKSUM verification. Handles the 2025 ms→µs timestamp change. Snaps off-grid bars to the grid ([ADR-0003](docs/adr/0003-missing-bar-policy.md)). Pandera schemas, a hive-partitioned Parquet store with a manifest, and a Coinbase fallback. |
 | Features | `src/volforecast/features/` | RV, bipower variation, jumps, realized semivariances, realized quarticity, HAR aggregates and forward targets |
-| Models | `src/volforecast/models/` | naive, EWMA, GARCH/GJR-GARCH (t), HAR, log-HAR, HAR-CJ, SHAR, HARQ, HAR-DoW, LightGBM, XGBoost, equal and inverse-loss ensembles |
+| Models | `src/volforecast/models/` | naive, EWMA, GARCH/GJR-GARCH (t), HAR, log-HAR, HAR-CJ, SHAR, HARQ, HAR-DoW, LightGBM, XGBoost, equal and inverse-loss ensembles, and an optional LSTM challenger (`dl` extra, [ADR-0012](docs/adr/0012-lstm-challenger.md)) |
 | Evaluation | `src/volforecast/evaluation/` | Walk-forward engine. QLIKE/MSE, DM with the HLN correction, Mincer-Zarnowitz, MCS. VaR/ES with normal, t, calibrated and FHS distributions, backtested with Kupiec, Christoffersen, the Basel traffic light and Acerbi-Székely. |
 | MLOps | `registry/`, `flows/`, `monitoring/`, `forecast_store/` | MLflow aliases ([ADR-0006](docs/adr/0006-mlflow-aliases-over-stages.md)), the promotion gate, Prefect flows, PSI + Wasserstein drift, performance triggers and idempotent upserts |
 | Serving | `src/volforecast/serving/` | Snapshot cache with hot reload. Readiness gating, ETag/304, a token-bucket rate limit, a CORS allowlist, Prometheus metrics labelled by route template, and multi-worker graceful shutdown. |
@@ -257,13 +257,14 @@ The design decisions are recorded as [ADRs](docs/adr/). The [runbook](docs/runbo
 - M4: VaR/ES.
 - M5: MLOps.
 - M6: the API and local stack.
+- LSTM challenger: five-seed Kaggle T4 backtest ([ADR-0012](docs/adr/0012-lstm-challenger.md), [results](docs/results/lstm_seeds.md)). It beats HAR in every cell and beats log-HAR-DoW significantly only on BTC (h=1, h=5) and ETH h=1. There is no significant difference against XGBoost, so production stays XGBoost.
+- Public dashboard: a static GitHub Pages site built daily by CI ([ADR-0013](docs/adr/0013-github-pages-dashboard.md)). It shows a daily-refit `fallback:xgb` forecast, which can differ from a registry champion.
 
 **Built and validated statically, not yet run on a cluster.** The Helm chart passes `helm lint` and kubeconform. The kind, Argo CD and CD workflows are written but haven't been deployed. k6 has only been run as a 10-second smoke test against a local server (p95 9.9 ms at 200 req/s); the full scenarios haven't been run.
 
 **Not done**
-- An LSTM challenger.
 - A cluster deployment with HPA measurements.
-- A live dashboard: built and tested, but goes live at https://hitesh-prajapathi.github.io/crypto-volatility-forecasting/ only once GitHub Pages is enabled (source: GitHub Actions); see [docs/platform.md](docs/platform.md#10-public-dashboard-github-pages).
+- Dashboard going live: built and tested, but https://hitesh-prajapathi.github.io/crypto-volatility-forecasting/ is a placeholder until GitHub Pages is enabled (Settings, Pages, Source: GitHub Actions) and the `pages` workflow has run once; see [docs/platform.md](docs/platform.md#10-public-dashboard-github-pages) and the [runbook](docs/runbook.md#10-github-pages-dashboard-workflow).
 
 The plan is in [docs/execution_plan.md](docs/execution_plan.md).
 

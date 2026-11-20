@@ -5,7 +5,7 @@ Operational procedures. Each entry is symptom, diagnosis, action. Commands are c
 The four batch flows (`python -m volforecast.flows.<ingest|forecast|evaluate|retrain>`) are
 implemented; how they work, the promotion gate and the drift triggers are in
 [mlops.md](mlops.md) and are not repeated here. Section 4 (cluster deploy) has not been run on a
-real cluster yet.
+real cluster yet. Section 10 covers the Pages workflow, section 11 the Kaggle LSTM runs.
 
 Alert names below match `deploy/monitoring/alerts/volforecast-rules.yaml`.
 
@@ -248,3 +248,32 @@ uv run python -m volforecast.flows.retrain --assets BTCUSDT --horizons 1 --force
   [model_card.md](model_card.md).
 - Action: review the VaR distribution and the champion; roll back (section 5) if a model change
   preceded the cluster.
+
+## 10. GitHub Pages dashboard workflow
+
+Background: [ADR-0013](adr/0013-github-pages-dashboard.md), `docs/platform.md` section 10.
+
+- Symptom: the site is stale or missing, or the `pages` run failed (red in the Actions tab).
+- Rerun: Actions, `pages`, "Run workflow" (`workflow_dispatch`), or `gh workflow run pages.yml`
+  then `gh run watch`. It also runs daily at 01:30 UTC; runs queue and are not cancelled. The first
+  run after enabling Pages bootstraps the full history and is slow (timeout 90 minutes).
+- Diagnosis: open the failed run and find the first red step.
+  - `deploy` fails with a Pages error: Settings, Pages, Source must be "GitHub Actions".
+  - Ingest fails: the Binance Vision archive is not posted yet or unreachable (section 6); rerun later.
+  - Forecast fails: read its log. The CI job has no `@champion` and uses `fallback:xgb` by design.
+  - The restore step logs "no previous store": the cache was evicted and the live site had no
+    `data/store.db`, so the track record restarts (the page says so).
+- A failed run never replaces the published site; the previous version stays up. After fixing the
+  cause, rerun the workflow. To build locally use `make site`; pass `--demo` for a scratch store so
+  it cannot pass as a live record.
+
+## 11. Rerun the LSTM seed backtests on Kaggle
+
+Background: [ADR-0012](adr/0012-lstm-challenger.md), results in
+[results/lstm_seeds.md](results/lstm_seeds.md).
+
+- Symptom: the LSTM code, config or data changed and the five-seed table is stale.
+- Action: follow [scripts/kaggle/README.md](../scripts/kaggle/README.md) (private dataset, private
+  GPU kernel, per-seed reports, aggregation); the steps are not repeated here. The upload must come
+  from a committed tree, and the `CODE_SHA` goes into the result.
+- GPU and CPU runs are not bit-identical, so compare against the GPU numbers only.
