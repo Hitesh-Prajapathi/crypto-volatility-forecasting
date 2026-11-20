@@ -116,7 +116,7 @@ tests:
   - name: a series that disappears (API down at 01:00) counts as a miss
     interval: 10m
     input_series:
-      # day 0 is good until 06:40, then the API stops being scraped for the rest of the horizon
+      # day 0 is good until its last sample at 07:10, then the API stops being scraped for the rest of the horizon
       - series: 'volforecast_forecast_age_seconds{asset="BTCUSDT",horizon="1"}'
         values: "86400+600x3 2400+600x39 _x200"
     promql_expr_test:

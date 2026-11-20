@@ -67,7 +67,10 @@ groups:
   # 01:00 - 00:00 = 3600 s old at 01:00 and a missed run leaves one that is >= 86400 s old.
   - name: volforecast.slo
     # One evaluation per minute so the 01:00 gate below yields exactly one sample per day and
-    # avg/count_over_time over the recorded series count days (not evaluations).
+    # avg/count_over_time over the recorded series count days (not evaluations). Prometheus staggers
+    # group evaluations by a per-group offset inside the interval, so the one evaluation in the
+    # 01:00 minute happens at 01:00:xx, never twice; an evaluation skipped by an overloaded server
+    # would drop that day's sample (the day is then missing, not counted as a miss).
     interval: 1m
     rules:
       # 1 if the day-t+1 forecast of the asset was being served at 01:00 UTC, else 0. Missing
