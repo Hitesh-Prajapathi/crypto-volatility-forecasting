@@ -70,7 +70,7 @@ def test_expected_rules_present(groups: list[dict[str, Any]]) -> None:
     alerts = {r["alert"] for r in _rules(groups) if "alert" in r}
     records = {r["record"] for r in _rules(groups) if "record" in r}
     assert alerts == LEGACY_ALERTS | SLO_ALERTS
-    assert SLO_RECORDS <= records
+    assert records >= SLO_RECORDS
 
 
 def test_every_rule_is_well_formed(groups: list[dict[str, Any]]) -> None:

@@ -108,3 +108,19 @@ STATEFUL_MODELS: frozenset[str] = frozenset({"ens_inv"})
 def is_stateful_model(name: str) -> bool:
     """True if `name` must be walked forward on one reused instance (see ``STATEFUL_MODELS``)."""
     return name in STATEFUL_MODELS
+
+
+def require_warm_state(model: VolModel, name: str) -> None:
+    """Raise if a stateful model comes back from the registry without its learned state.
+
+    A cold ``ens_inv`` silently serves equal weights (= ``ens_eq``) while the gate scored the
+    weighted one; this is the load-time tripwire for that failure.
+    """
+    if not is_stateful_model(name):
+        return
+    n = getattr(model, "n_recorded_origins", 0)
+    if not isinstance(n, int) or n <= 0:
+        raise RuntimeError(
+            f"stateful model {name!r} was loaded without its learned state (no recorded "
+            "out-of-sample forecasts); refusing to serve equal weights. Retrain it."
+        )
