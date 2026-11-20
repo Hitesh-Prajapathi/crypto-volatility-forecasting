@@ -3,7 +3,7 @@
 #   docker build -f docker/api.Dockerfile -t volforecast-api:dev .
 
 # ---- uv binary (pinned) ------------------------------------------------------
-FROM ghcr.io/astral-sh/uv:0.9.25 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.8 AS uv
 
 # ---- builder: resolve + install into a relocatable venv ----------------------
 FROM python:3.12-slim-bookworm AS builder
