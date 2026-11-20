@@ -8,7 +8,20 @@ updates:
     directory: /docker
     schedule:
       interval: weekly
+    ignore:
+      # The project targets Python 3.12 (pyproject, uv.lock, CI, runtime images): the base image
+      # moves only together with requires-python and the lock, never by a lone image bump.
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
   - package-ecosystem: uv
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # legacy/requirements.txt belongs to the retracted legacy code and is not installed by the
+      # project (see legacy/README.md). None of these is in pyproject.toml, so ignoring them only
+      # silences the legacy file.
+      - dependency-name: pmdarima
+      - dependency-name: yfinance
+      - dependency-name: seaborn
+      - dependency-name: tensorflow
