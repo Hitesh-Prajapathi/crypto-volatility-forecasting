@@ -7,7 +7,7 @@ implemented; how they work, the promotion gate and the drift triggers are in
 [mlops.md](mlops.md) and are not repeated here. Section 4 (cluster deploy) has not been run on a
 real cluster yet. Section 10 covers the Pages workflow, section 11 the Kaggle LSTM runs.
 
-Alert names below match `deploy/monitoring/alerts/volforecast-rules.yaml`.
+Alert names below match `deploy/helm/volforecast/rules/volforecast-rules.yaml` (the single rules file, shared by compose and the Helm PrometheusRule).
 
 ## 1. Local stack up and down
 
@@ -248,6 +248,28 @@ uv run python -m volforecast.flows.retrain --assets BTCUSDT --horizons 1 --force
   [model_card.md](model_card.md).
 - Action: review the VaR distribution and the champion; roll back (section 5) if a model change
   preceded the cluster.
+
+### ForecastLate (warning)
+- Symptom: the h=1 forecast for an asset is more than 25h05m old, i.e. tomorrow's forecast was not
+  served 5 minutes after 01:00 UTC (`volforecast_forecast_age_seconds`).
+- Diagnosis: the latest `forecast` CronJob and flow logs; whether `PipelineFailed` or `DataStale`
+  also fire; `volforecast_api_ready`. See "Stale forecast" in section 8.
+- Action: fix the cause and rerun `forecast`; the alert clears once the new forecast is served.
+
+### ForecastFreshnessConsecutiveMisses (critical)
+- Symptom: the 01:00 UTC freshness sample (`volforecast:forecast_fresh_at_0100:bool`) missed on two
+  consecutive days.
+- Action: treat it as an incident. Fix ingest or forecast, then rerun `forecast` for the missed day.
+
+### ForecastFreshnessBudgetBurn (warning)
+- Symptom: the 30-day freshness ratio is below 99%. One miss keeps it firing for 30 days.
+- Action: freeze changes to the ingest and forecast flows as [slo.md](slo.md) describes, and review
+  the misses (`volforecast:forecast_fresh_at_0100:misses_30d`).
+
+### Stateful champion loaded without its learned state
+- Symptom: the forecast flow raises `stateful model 'ens_inv' was loaded without its learned state`.
+- Cause: the `@champion` artifact predates the warm-start fix or lost its history.
+- Action: `python -m volforecast.flows.retrain --assets <asset> --horizons <h> --force`.
 
 ## 10. GitHub Pages dashboard workflow
 

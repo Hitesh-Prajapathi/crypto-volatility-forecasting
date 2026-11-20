@@ -77,7 +77,9 @@ jobs:
         if: ${{ hashFiles('deploy/helm/volforecast/Chart.yaml') != '' }}
       - name: Helm lint
         if: ${{ hashFiles('deploy/helm/volforecast/Chart.yaml') != '' }}
-        run: helm lint deploy/helm/volforecast
+        run: |
+          helm lint deploy/helm/volforecast
+          helm lint deploy/helm/volforecast --set monitoring.enabled=true
       - name: Install kubeconform
         if: ${{ hashFiles('deploy/helm/volforecast/Chart.yaml') != '' }}
         run: |
@@ -85,4 +87,11 @@ jobs:
           sudo mv kubeconform /usr/local/bin/
       - name: Render and validate manifests
         if: ${{ hashFiles('deploy/helm/volforecast/Chart.yaml') != '' }}
-        run: helm template volforecast deploy/helm/volforecast | kubeconform -strict -ignore-missing-schemas -summary
+        run: |
+          helm template volforecast deploy/helm/volforecast | kubeconform -strict -ignore-missing-schemas -summary
+          helm template volforecast deploy/helm/volforecast --namespace volforecast --set monitoring.enabled=true | kubeconform -strict -ignore-missing-schemas -summary
+      - name: Prometheus rules (promtool check + unit tests)
+        if: ${{ hashFiles('deploy/helm/volforecast/rules/volforecast-rules.yaml') != '' }}
+        run: |
+          docker run --rm --entrypoint promtool -v "$PWD":/w -w /w prom/prometheus:v3.5.0 check rules deploy/helm/volforecast/rules/volforecast-rules.yaml
+          docker run --rm --entrypoint promtool -v "$PWD":/w -w /w prom/prometheus:v3.5.0 test rules deploy/monitoring/alerts/tests/freshness-slo.yaml
