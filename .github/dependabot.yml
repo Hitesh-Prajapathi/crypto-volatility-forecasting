@@ -25,3 +25,7 @@ updates:
       - dependency-name: yfinance
       - dependency-name: seaborn
       - dependency-name: tensorflow
+      # prefect (<=3.9.4) pins fastapi<0.151, so a fastapi bump makes uv downgrade prefect
+      # (3.9.3 -> 3.8.8). Remove this entry once a prefect release lifts the cap.
+      - dependency-name: fastapi
+        versions: [">=0.151"]
