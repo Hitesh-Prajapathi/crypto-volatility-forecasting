@@ -5,7 +5,7 @@
 # extra: docker build --build-arg UV_EXTRAS="--extra mlops --extra serve" ...
 
 # ---- uv binary (pinned) ------------------------------------------------------
-FROM ghcr.io/astral-sh/uv:0.9.25 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.8 AS uv
 
 # ---- builder -------------------------------------------------------------------
 FROM python:3.12-slim-bookworm AS builder
