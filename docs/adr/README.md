@@ -13,6 +13,8 @@ Decisions are recorded using [the template](0000-template.md). Never delete an A
 | [0007](0007-cronjob-triggers-prefect-executes.md) | Kubernetes CronJobs trigger, Prefect executes | Accepted |
 | [0009](0009-batch-inference-forecast-store.md) | Batch inference + forecast store instead of on-request inference | Accepted |
 | [0010](0010-gitops-argocd-pull.md) | GitOps with Argo CD pull instead of CI push | Accepted |
+| [0011](0011-drift-monitoring-without-evidently.md) | Drift monitoring implemented in-house (scipy) instead of Evidently | Accepted |
 | [0012](0012-lstm-challenger.md) | LSTM challenger for h-day realized variance | Accepted |
+| [0013](0013-github-pages-dashboard.md) | Public dashboard as a static GitHub Pages site built daily in CI | Accepted |
 
-Planned, written in their milestones (see the ADR index in the [execution plan](../execution_plan.md)): 0008 Kubernetes resource choices (HPA/PDB/NetworkPolicy), 0011 Public dashboard on GitHub Pages.
+Planned, written in their milestones (see the ADR index in the [execution plan](../execution_plan.md)): 0008 Kubernetes resource choices (HPA/PDB/NetworkPolicy).
