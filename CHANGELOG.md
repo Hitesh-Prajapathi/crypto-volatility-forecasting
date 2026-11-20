@@ -34,6 +34,9 @@ All notable changes to this project are documented here. The format follows [Kee
 - Legacy code moved to `legacy/` (tag `v0-legacy`) and excluded from lint and type checks.
 - Notebooks moved to `legacy/notebooks/`.
 - `ens_inv` excluded from production retrain candidates until its weights can be served.
+- CI: docker/login-action v4, docker/setup-qemu-action v4, docker/build-push-action v7, gitleaks/gitleaks-action v3 and azure/setup-helm v5 (Node 24 runtime; no input changes).
+- Docker: pinned uv image 0.9.25 → 0.13.8 in the api and jobs images.
+- Dependabot: Python base image held at 3.12; fastapi held below 0.151 while prefect pins `fastapi<0.151`; legacy-only requirements (pmdarima, yfinance, seaborn, tensorflow) ignored.
 
 ### Removed
 
