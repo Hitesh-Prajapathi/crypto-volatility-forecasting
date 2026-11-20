@@ -12,10 +12,10 @@ retrain:
     - {name: har, refit_every: 5}
   # Optional candidates: any factory model whose name starts with one of these prefixes is
   # added at runtime if present (they are not imported statically). Failures are skipped.
-  # ens_inv is excluded on purpose: its inverse-loss weights live in walk-forward history that
-  # the logged artifact does not carry, so the served model would be equal-weight (= ens_eq)
-  # while the gate scored the weighted one. See docs/mlops.md, Known limitations.
-  optional_prefixes: [lgbm, xgb, ens_eq]
+  # ens_inv is stateful (inverse-loss weights from out-of-sample history). The retrain logs the
+  # walked-forward instance, so the artifact carries that history, and the forecast flow refuses
+  # to serve one that loaded without it (registry.training.fit_final_model, factory.require_warm_state).
+  optional_prefixes: [lgbm, xgb, ens_eq, ens_inv]
   optional_refit_every: 20
   wf_days: 650      # 365 gate window + 250 FHS residual burn-in + margin
   min_train: 365

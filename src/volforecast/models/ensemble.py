@@ -29,6 +29,19 @@ instance at every engine refit, so the forecast history survives (it is reset on
 horizon changes). Each ``fit`` refits all members on the supplied history; between engine
 refits ``member_refit_every`` sets the members' own cadence. Without instance reuse the engine
 would discard the object at every refit and the weights would restart from equal weights.
+
+Persistence (warm start)
+------------------------
+The recorded member forecasts (``_hist``) and the per-member fit dates ARE the learned state: the
+losses are recomputed from the panel handed to ``predict_variance``, so the state holds forecasts
+only and cannot encode look-ahead (an origin ``s`` enters the weights at ``t`` only if ``s <= t -
+h``, whatever else the state contains). The object is cloudpickled whole into the MLflow artifact
+(``registry.pyfunc``), so a retrain that logs the *walked-forward* instance (continuing it with a
+final ``fit`` on the full history, as an engine refit would) serves the weights it was scored with.
+``n_recorded_origins`` / ``history_end`` / ``warm_start_summary`` expose the state for the
+metadata, the load-time guard (``factory.require_warm_state``) and the tests. Between retrains the
+served artifact is frozen: new origins are not appended to it (the daily forecast job reloads the
+artifact), so the weights stay those of the last retrain.
 """
 
 from __future__ import annotations
@@ -267,3 +280,24 @@ class InverseLossEnsemble(_Ensemble):
 
     def _ensemble_params(self) -> dict[str, Any]:
         return {"window": self.window, "min_obs": self.min_obs}
+
+    # ---------------------------------------------------------------- warm-start state
+    @property
+    def n_recorded_origins(self) -> int:
+        """Number of forecast origins whose member forecasts are held (0 = cold start)."""
+        return len(self._hist)
+
+    @property
+    def history_end(self) -> pd.Timestamp | None:
+        """Latest recorded forecast origin, or None for a cold instance."""
+        return max(self._hist) if self._hist else None
+
+    def warm_start_summary(self) -> dict[str, Any]:
+        """JSON-serializable view of the persisted state (for the artifact metadata)."""
+        end = self.history_end
+        return {
+            "n_recorded_origins": self.n_recorded_origins,
+            "history_end": None if end is None else str(end.date()),
+            "horizon": self._hist_h,
+            "last_weights": self.last_weights,
+        }

@@ -95,7 +95,7 @@ than `E[ret^2]`, that fallback VaR is not scale-calibrated (see `evaluation/risk
 
 `registry/promotion.py` (config: `promotion:` in `configs/production.yaml`). The challenger is the
 walk-forward winner (lowest mean QLIKE over the last `window` = 365 common origins among the
-candidates `log_har`, `harq`, `har` plus any of `lgbm*`, `xgb*`, `ens_*` that builds), refit on the
+candidates `log_har`, `harq`, `har` plus any of `lgbm*`, `xgb*`, `ens_eq`, `ens_inv` that builds), refit on the
 whole information set. It is promoted only if **all** hold on the last 365 origins:
 
 | | Criterion |
@@ -250,16 +250,29 @@ forecast), all `success`, and 4 `promotion_decisions` rows.
 Caveats: this is one asset and one date. Step 2 evaluates frozen champions on 60 days, and the
 numbers in step 3 come from 55-59 scored origins (the h=5 targets overlap), so the ratios are
 noisy; they show the pipeline works end to end, not that the model beats HAR. The identical QLIKE of
-`ens_eq` and `ens_inv` in the tables was not investigated.
+`ens_eq` and `ens_inv` in the tables of this run was a defect: the retrain walk-forward rebuilt
+`ens_inv` at every refit, so it never left equal weights. It is fixed (stateful models are walked
+forward on one reused instance, see section 8); these tables were not regenerated.
 
 
 ## 8. Known limitations
 
-* **`ens_inv` is not a production candidate.** Its weights come from out-of-sample history
-  accumulated during the walk-forward; the artifact logged after the final `fit` starts with an
-  empty history and would serve equal weights (identical to `ens_eq`) while the promotion gate
-  scored the weighted version. `configs/production.yaml` therefore lists `ens_eq` but not
-  `ens_inv`; warm-starting the logged instance would lift this restriction.
+* **`ens_inv` is stateful and is a production candidate** (`optional_prefixes` in
+  `configs/production.yaml`). Its inverse-QLIKE weights come from out-of-sample member forecasts
+  accumulated during the walk-forward. The retrain therefore walks it forward on ONE reused
+  instance (`models.factory.is_stateful_model`), and the model it logs is that same instance, `fit`
+  once more on the full information set (an engine refit at `as_of`), not a fresh
+  `build_model(...).fit(...)`. The recorded forecasts (`_hist`) are cloudpickled with the model, and
+  `metadata.json` carries `warm_start` (`n_recorded_origins`, `history_end`, `last_weights`). The
+  state is forecasts only: losses are recomputed from the panel at prediction time and an origin `s`
+  enters the weights at `t` only if its target is realized (`s <= t - h`), so a stored state cannot
+  look ahead. The forecast flow refuses a stateful champion that loads without recorded origins
+  (`factory.require_warm_state`) instead of silently serving equal weights.
+  Limitation: the served artifact is frozen between retrains (weekly). The daily forecasts use the
+  weights of the last retrain; origins after `as_of` are not appended to it, and its members are
+  refitted on their own cadence at prediction time. A fresh retrain re-learns the weights from
+  scratch inside its walk-forward (`wf_days`, with a burn-in before the 365-origin gate window), so
+  nothing carries over from the previous champion.
 * **Nothing starts retrain automatically** after `evaluate` flags a trigger (section 5).
 * **Prefect has no worker, schedule or deployment.** Without `PREFECT_API_URL` each run starts an
   ephemeral local API (a few seconds of overhead, state under `~/.prefect`; with the read-only

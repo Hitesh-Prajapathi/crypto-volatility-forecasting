@@ -1,0 +1,123 @@
+# Prometheus rules: the single source of truth for compose AND the Helm chart.
+#   * compose mounts this directory at /etc/prometheus/alerts (compose.yaml);
+#   * the chart renders `groups` into the PrometheusRule via .Files.Get
+#     (templates/prometheusrule.yaml), which only adds `namespace="<release ns>"` to the
+#     `http_requests_total{` and `http_request_duration_seconds_bucket{` selectors. Keep those
+#     selectors written with a label matcher (tests/unit/test_alert_rules.py enforces it).
+# Unit tests: deploy/monitoring/alerts/tests/*.yaml (`promtool test rules`).
+groups:
+  - name: volforecast.data
+    rules:
+      - alert: DataStale
+        expr: time() - max by (asset) (volforecast_data_last_bar_timestamp_seconds) > 26 * 3600
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "No new bar for {{ $labels.asset }} in more than 26h"
+          description: "Last ingested bar is {{ $value | humanizeDuration }} old."
+      - alert: PipelineFailed
+        expr: time() - max by (flow) (volforecast_pipeline_last_success_timestamp_seconds{flow="forecast"}) > 26 * 3600
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "No successful 'forecast' flow run in 26h"
+          description: "Last success was {{ $value | humanizeDuration }} ago."
+  - name: volforecast.api
+    rules:
+      - alert: APIErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+            / clamp_min(sum(rate(http_requests_total{}[5m])), 1e-9) > 0.01
+        for: 10m
+        labels: { severity: critical }
+        annotations:
+          summary: "API 5xx ratio above 1% for 10m"
+          description: "Current 5xx ratio: {{ $value | humanizePercentage }}."
+      - alert: APILatencyP95
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(http_request_duration_seconds_bucket{route!~"/metrics|/healthz|/readyz"}[5m]))
+          ) > 0.2
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "API P95 latency above 200ms for 10m"
+          description: "Current P95: {{ $value | humanizeDuration }}."
+  - name: volforecast.model
+    rules:
+      - alert: ModelUnderperformsHAR
+        # min over 10d > 1  <=>  the QLIKE ratio vs HAR stayed above 1 for the whole window.
+        expr: |
+          min_over_time(volforecast_qlike_ratio_vs_har[10d]) > 1
+          and
+          count_over_time(volforecast_qlike_ratio_vs_har[10d]) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: "Champion worse than HAR for 10 days ({{ $labels.asset }} h={{ $labels.horizon }})"
+          description: "Minimum QLIKE ratio vs HAR over 10d is {{ $value }}; consider rolling back the @champion alias."
+      - alert: VaRBreachCluster
+        expr: sum by (asset) (increase(volforecast_var_breaches_total{level=~"99|0\\.99"}[10d])) >= 3
+        labels: { severity: warning }
+        annotations:
+          summary: "3 or more 99% VaR breaches in 10 days for {{ $labels.asset }}"
+          description: "{{ $value }} breaches in the last 10 days."
+  # Freshness SLO (docs/slo.md, SLO 2): the forecast for day t+1 is available by 01:00 UTC on 99% of
+  # days. `volforecast_forecast_age_seconds{horizon="1"}` is the age of the end of the served
+  # forecast's origin day (UTC). The forecast made from the day that closes at 00:00 is
+  # 01:00 - 00:00 = 3600 s old at 01:00 and a missed run leaves one that is >= 86400 s old.
+  - name: volforecast.slo
+    # One evaluation per minute so the 01:00 gate below yields exactly one sample per day and
+    # avg/count_over_time over the recorded series count days (not evaluations). Prometheus staggers
+    # group evaluations by a per-group offset inside the interval, so the one evaluation in the
+    # 01:00 minute happens at 01:00:xx, never twice; an evaluation skipped by an overloaded server
+    # would drop that day's sample (the day is then missing, not counted as a miss).
+    interval: 1m
+    rules:
+      # 1 if the day-t+1 forecast of the asset was being served at 01:00 UTC, else 0. Missing
+      # series count as misses: an asset whose series disappeared during the last day gets 0, and a
+      # total outage (no series at all) yields one label-less 0. The series exists only at 01:00
+      # (instant selectors on it are empty the rest of the day: use *_over_time on it).
+      - record: volforecast:forecast_fresh_at_0100:bool
+        expr: |
+          (
+            (
+              (max by (asset) (volforecast_forecast_age_seconds{horizon="1"}) < bool 86400)
+              or
+              (0 * max by (asset) (last_over_time(volforecast_forecast_age_seconds{horizon="1"}[1d])))
+            )
+            or on() vector(0)
+          )
+          and on() (hour() == 1 and minute() == 0)
+      # SLI: share of the last 30 daily samples that were good (target >= 0.99).
+      - record: volforecast:forecast_fresh_at_0100:ratio_30d
+        expr: avg_over_time(volforecast:forecast_fresh_at_0100:bool[30d])
+      - record: volforecast:forecast_fresh_at_0100:misses_30d
+        expr: |
+          count_over_time(volforecast:forecast_fresh_at_0100:bool[30d])
+            - sum_over_time(volforecast:forecast_fresh_at_0100:bool[30d])
+      # Fires 5 minutes after the 01:00 deadline and stays until the forecast is served (25h05m
+      # past the close of the origin day = the forecast is still the previous day's).
+      - alert: ForecastLate
+        expr: max by (asset) (volforecast_forecast_age_seconds{horizon="1"}) > 25 * 3600 + 300
+        labels: { severity: warning }
+        annotations:
+          summary: "Forecast for the next day not served for {{ $labels.asset }} 5 minutes after 01:00 UTC"
+          description: "The origin day of the served forecast closed {{ $value | humanizeDuration }} ago; the freshness SLO needs the next one served within 1h of the close."
+      # Two daily samples in a row at 0 (any asset): today's [23h] window holds only today's 01:00
+      # sample and the same window shifted by one day only yesterday's.
+      - alert: ForecastFreshnessConsecutiveMisses
+        expr: |
+          min(max_over_time(volforecast:forecast_fresh_at_0100:bool[23h])) == 0
+          and
+          min(max_over_time(volforecast:forecast_fresh_at_0100:bool[23h] offset 1d)) == 0
+        labels: { severity: critical }
+        annotations:
+          summary: "Forecast missed the 01:00 UTC freshness deadline two days in a row"
+          description: "Fast error-budget burn: two consecutive misses. See docs/slo.md (SLO 2)."
+      # One missed day in 30 is already 3.3% > the 1% budget, so this fires for 30 days after a miss.
+      - alert: ForecastFreshnessBudgetBurn
+        expr: volforecast:forecast_fresh_at_0100:ratio_30d < 0.99
+        labels: { severity: warning }
+        annotations:
+          summary: "Forecast freshness SLO below 99% over 30 days ({{ $labels.asset }})"
+          description: "Share of days with the forecast served by 01:00 UTC is {{ $value | humanizePercentage }}; error budget exhausted, freeze ingest/forecast changes (docs/slo.md)."

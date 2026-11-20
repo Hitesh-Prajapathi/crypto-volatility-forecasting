@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from functools import partial
 from typing import Any
 
 import mlflow
@@ -16,11 +15,12 @@ import numpy as np
 import pandas as pd
 from mlflow import MlflowClient
 
-from volforecast.contracts import COL_COMPLETE
+from volforecast.contracts import COL_COMPLETE, VolModel
 from volforecast.evaluation.losses import qlike
 from volforecast.evaluation.walkforward import ModelSpec, WalkForwardConfig, run_walkforward
 from volforecast.forecast_store.repository import ForecastRepository
 from volforecast.logging import get_logger
+from volforecast.models.ensemble import InverseLossEnsemble
 from volforecast.models.factory import build_model, is_stateful_model, list_models
 from volforecast.pipeline.backtest import git_info
 from volforecast.registry.client import (
@@ -81,6 +81,42 @@ def last_complete_date(panel: pd.DataFrame) -> pd.Timestamp:
     return pd.Timestamp(ok[-1])
 
 
+def walkforward_candidate_with_model(
+    panel: pd.DataFrame,
+    asset: str,
+    h: int,
+    cand: CandidateConfig,
+    cfg: ProductionConfig,
+    data_hash: str,
+) -> tuple[pd.DataFrame, VolModel | None]:
+    """Walk-forward over the last ``wf_days`` origins, plus the walked-forward instance.
+
+    The instance is returned only for stateful models (``reuse_instance``: one object lives
+    through the whole walk-forward, so it holds the out-of-sample history the gate scored); it is
+    None for all others, whose engine instances are rebuilt at every refit.
+    """
+    n = len(panel)
+    first = panel.index[max(cfg.retrain.min_train - 1, n - cfg.retrain.wf_days)]
+    wf = WalkForwardConfig(first_origin=first, horizons=(h,), min_train=cfg.retrain.min_train)
+    stateful = is_stateful_model(cand.name)
+    built: list[VolModel] = []
+
+    def builder() -> VolModel:
+        model = build_model(cand.name, **cand.params)
+        built.append(model)
+        return model
+
+    spec = ModelSpec(
+        name=cand.name,
+        builder=builder,
+        refit_every=cand.refit_every,
+        # stateful models (ens_inv) keep their OOS forecast history inside the instance
+        reuse_instance=stateful,
+    )
+    fc, _ = run_walkforward(panel, spec, wf, h, asset, data_hash)
+    return fc, (built[0] if stateful and built else None)
+
+
 def walkforward_candidate(
     panel: pd.DataFrame,
     asset: str,
@@ -90,18 +126,30 @@ def walkforward_candidate(
     data_hash: str,
 ) -> pd.DataFrame:
     """Walk-forward over the last ``wf_days`` origins (FORECAST_COLUMNS table)."""
-    n = len(panel)
-    first = panel.index[max(cfg.retrain.min_train - 1, n - cfg.retrain.wf_days)]
-    wf = WalkForwardConfig(first_origin=first, horizons=(h,), min_train=cfg.retrain.min_train)
-    spec = ModelSpec(
-        name=cand.name,
-        builder=partial(build_model, cand.name, **cand.params),
-        refit_every=cand.refit_every,
-        # stateful models (ens_inv) keep their OOS forecast history inside the instance
-        reuse_instance=is_stateful_model(cand.name),
-    )
-    fc, _ = run_walkforward(panel, spec, wf, h, asset, data_hash)
-    return fc
+    return walkforward_candidate_with_model(panel, asset, h, cand, cfg, data_hash)[0]
+
+
+def fit_final_model(
+    best: CandidateConfig, panel: pd.DataFrame, h: int, walked: VolModel | None
+) -> VolModel:
+    """The model that gets logged: ``best`` fitted on the full information set.
+
+    A stateful model continues its walk-forward instance (``fit`` on the full history is exactly
+    one more engine refit at ``as_of``), so the artifact carries the out-of-sample history its
+    weights were learned from. Building a fresh instance here would serve equal weights.
+    """
+    if is_stateful_model(best.name):
+        if walked is None:
+            raise RuntimeError(f"{best.name}: no walked-forward instance to warm-start from")
+        return walked.fit(panel, h)
+    return build_model(best.name, **best.params).fit(panel, h)
+
+
+def warm_start_metadata(model: VolModel) -> dict[str, Any]:
+    """Artifact metadata describing the persisted learned state ({} for stateless models)."""
+    if isinstance(model, InverseLossEnsemble):
+        return {"warm_start": model.warm_start_summary()}
+    return {}
 
 
 def _gate_frame(fc: pd.DataFrame) -> pd.DataFrame:
@@ -168,9 +216,14 @@ def retrain_one(
         out.mlflow_run_id = str(run.info.run_id)
         mlflow.set_tags({"asset": asset, "horizon": str(h), "trigger": reason, "kind": "retrain"})
         results: dict[str, pd.DataFrame] = {}
+        walked: dict[str, VolModel] = {}  # stateful candidates' walk-forward instances
         for cand in specs.values():
             try:
-                results[key(cand)] = walkforward_candidate(pnl, asset, h, cand, cfg, data_hash)
+                results[key(cand)], inst = walkforward_candidate_with_model(
+                    pnl, asset, h, cand, cfg, data_hash
+                )
+                if inst is not None:
+                    walked[key(cand)] = inst
             except Exception as exc:
                 log.warning("candidate_failed", asset=asset, h=h, model=cand.name, err=repr(exc))
         champ_fc: pd.DataFrame | None = None
@@ -220,8 +273,7 @@ def retrain_one(
             nested=True,
         )
 
-        model = build_model(best.name, **best.params)
-        model.fit(pnl, h)
+        model = fit_final_model(best, pnl, h, walked.get(key(best)))
         latest = float(model.predict_variance(pnl, h))
         oos = best_fc[np.isfinite(best_fc["forecast_var"])][["origin_date", "forecast_var"]]
         info = log_volforecast_model(
@@ -233,7 +285,11 @@ def retrain_one(
             data_hash=data_hash,
             oos=oos,
             params=best.params,
-            extra_metadata={"git_sha": git_info()["sha"], "trigger": reason},
+            extra_metadata={
+                "git_sha": git_info()["sha"],
+                "trigger": reason,
+                **warm_start_metadata(model),
+            },
         )
         version = str(info.registered_model_version)
         out.challenger_version = version

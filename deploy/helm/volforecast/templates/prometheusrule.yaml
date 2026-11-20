@@ -1,6 +1,21 @@
 {{- if .Values.monitoring.enabled }}
 {{- $r := .Values.monitoring.prometheusRule }}
-{{- /* Same expressions as deploy/monitoring/alerts/volforecast-rules.yaml (compose). */}}
+{{- /*
+  The rule groups are NOT written here: rules/volforecast-rules.yaml is the single source of truth
+  (the compose stack mounts the same file). The only transformation is scoping the API HTTP
+  selectors to the release namespace. tests/unit/test_alert_rules.py checks that every such
+  selector in the file is written with braces (`{...}` or `{}`), which is what the replace below
+  keys on (`{}` leaves a `,}` that the last replace removes; the file must not contain `,}`).
+*/}}
+{{- $rules := .Files.Get "rules/volforecast-rules.yaml" | fromYaml }}
+{{- $ns := printf "namespace=%q," .Release.Namespace }}
+{{- range $group := $rules.groups }}
+{{- range $rule := $group.rules }}
+{{- if hasKey $rule "expr" }}
+{{- $_ := set $rule "expr" ($rule.expr | replace "http_requests_total{" (printf "http_requests_total{%s" $ns) | replace "http_request_duration_seconds_bucket{" (printf "http_request_duration_seconds_bucket{%s" $ns) | replace ",}" "}") }}
+{{- end }}
+{{- end }}
+{{- end }}
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -12,58 +27,5 @@ metadata:
     {{- end }}
 spec:
   groups:
-    - name: volforecast.data
-      rules:
-        - alert: DataStale
-          expr: time() - max by (asset) (volforecast_data_last_bar_timestamp_seconds) > {{ $r.dataStaleSeconds }}
-          for: 5m
-          labels: {severity: critical}
-          annotations:
-            summary: {{ `No new bar for {{ $labels.asset }} in more than 26h` | quote }}
-            description: {{ `Last ingested bar is {{ $value | humanizeDuration }} old.` | quote }}
-        - alert: PipelineFailed
-          expr: time() - max by (flow) (volforecast_pipeline_last_success_timestamp_seconds{flow="forecast"}) > {{ $r.dataStaleSeconds }}
-          for: 5m
-          labels: {severity: critical}
-          annotations:
-            summary: "No successful 'forecast' flow run in 26h"
-            description: {{ `Last success was {{ $value | humanizeDuration }} ago.` | quote }}
-    - name: volforecast.api
-      rules:
-        - alert: APIErrorRate
-          expr: |
-            sum(rate(http_requests_total{namespace="{{ .Release.Namespace }}",status=~"5.."}[5m]))
-              / clamp_min(sum(rate(http_requests_total{namespace="{{ .Release.Namespace }}"}[5m])), 1e-9) > {{ $r.apiErrorRatio }}
-          for: 10m
-          labels: {severity: critical}
-          annotations:
-            summary: "API 5xx ratio above 1% for 10m"
-            description: {{ `Current 5xx ratio: {{ $value | humanizePercentage }}.` | quote }}
-        - alert: APILatencyP95
-          expr: |
-            histogram_quantile(0.95,
-              sum by (le) (rate(http_request_duration_seconds_bucket{namespace="{{ .Release.Namespace }}",route!~"/metrics|/healthz|/readyz"}[5m]))
-            ) > {{ $r.apiLatencyP95Seconds }}
-          for: 10m
-          labels: {severity: warning}
-          annotations:
-            summary: "API P95 latency above 200ms for 10m"
-            description: {{ `Current P95: {{ $value | humanizeDuration }}.` | quote }}
-    - name: volforecast.model
-      rules:
-        - alert: ModelUnderperformsHAR
-          expr: |
-            min_over_time(volforecast_qlike_ratio_vs_har[10d]) > 1
-            and
-            count_over_time(volforecast_qlike_ratio_vs_har[10d]) > 0
-          labels: {severity: warning}
-          annotations:
-            summary: {{ `Champion worse than HAR for 10 days ({{ $labels.asset }} h={{ $labels.horizon }})` | quote }}
-            description: {{ `Minimum QLIKE ratio vs HAR over 10d is {{ $value }}; consider rolling back the @champion alias.` | quote }}
-        - alert: VaRBreachCluster
-          expr: sum by (asset) (increase(volforecast_var_breaches_total{level=~"99|0\\.99"}[10d])) >= 3
-          labels: {severity: warning}
-          annotations:
-            summary: {{ `3 or more 99% VaR breaches in 10 days for {{ $labels.asset }}` | quote }}
-            description: {{ `{{ $value }} breaches in the last 10 days.` | quote }}
+    {{- toYaml $rules.groups | nindent 4 }}
 {{- end }}

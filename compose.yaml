@@ -164,7 +164,7 @@ services:
       - --web.enable-lifecycle
     volumes:
       - ./deploy/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./deploy/monitoring/alerts:/etc/prometheus/alerts:ro
+      - ./deploy/helm/volforecast/rules:/etc/prometheus/alerts:ro
       - promdata:/prometheus
     ports: ["127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"]
     depends_on: [api]

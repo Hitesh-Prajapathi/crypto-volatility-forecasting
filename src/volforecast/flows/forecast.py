@@ -53,7 +53,7 @@ from volforecast.forecast_store import (
     SERVED_ROLES,
 )
 from volforecast.logging import get_logger
-from volforecast.models.factory import build_model
+from volforecast.models.factory import build_model, require_warm_state
 from volforecast.registry.client import (
     CHALLENGER,
     CHAMPION,
@@ -88,9 +88,11 @@ def load_registered(rt: Runtime, asset: str, h: int, alias: str, role: str) -> S
     loaded = mlflow.pyfunc.load_model(model_uri(asset, h, alias))
     inner = loaded.unwrap_python_model()
     assert isinstance(inner, VolForecastPyfunc)
+    model_name = str(inner.metadata.get("model_name", "unknown"))
+    require_warm_state(inner.model, model_name)  # a cold ens_inv would serve equal weights
     return ServedModel(
         model=inner.model,
-        model_name=str(inner.metadata.get("model_name", "unknown")),
+        model_name=model_name,
         version=str(mv.version),
         role=role,
         oos=inner.oos_forecasts,
