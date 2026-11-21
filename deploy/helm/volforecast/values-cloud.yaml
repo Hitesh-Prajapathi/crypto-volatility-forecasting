@@ -1,9 +1,8 @@
 # Cloud overlay: public ingress with TLS (cert-manager), External Secrets, larger HPA ceiling,
 # persistent data volume. Replace hosts / store names for your environment.
 image:
-  tag: "latest" # bumped by the CD pipeline (gitops-bump job)
+  tag: "1.0.0" # bumped by the CD pipeline (gitops-bump job)
   pullPolicy: IfNotPresent
-
 externalSecret:
   enabled: true
   secretStoreRef:
@@ -16,25 +15,20 @@ externalSecret:
       remoteRef: {key: volforecast/prod, property: s3_access_key_id}
     - secretKey: AWS_SECRET_ACCESS_KEY
       remoteRef: {key: volforecast/prod, property: s3_secret_access_key}
-
 # Behind the ingress every request arrives from the ingress pod: trust its X-Forwarded-For hop so
 # the per-client rate limit sees real client addresses (never set this without a proxy in front).
 extraConfig:
   VOLF_API_TRUSTED_PROXY_HOPS: "1"
-
 api:
   replicas: 3
   resources:
     requests: {cpu: 250m, memory: 384Mi}
     limits: {cpu: "1", memory: 1Gi}
-
 autoscaling:
   minReplicas: 3
   maxReplicas: 12
-
 service:
   type: ClusterIP
-
 ingress:
   enabled: true
   className: nginx
@@ -48,14 +42,11 @@ ingress:
   tls:
     - secretName: volforecast-tls
       hosts: [volforecast.example.com]
-
 dataVolume:
   type: pvc
   size: 10Gi
   accessModes: [ReadWriteMany]
-
 rbac:
   retrainCanCreateJobs: true
-
 monitoring:
   enabled: true
