@@ -107,7 +107,7 @@ jobs:
       - name: Build the static site
         run: uv run python -m volforecast.site --out _site --publish-store
 
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v4
         with:
           path: _site
