@@ -29,7 +29,7 @@ jobs:
       matrix:
         image: [api, jobs]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Compute lowercase image name
         id: name
@@ -122,7 +122,7 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Compute new image tag
         id: tag

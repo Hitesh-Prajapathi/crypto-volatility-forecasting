@@ -47,7 +47,7 @@ jobs:
       MLFLOW_TRACKING_URI: sqlite:///${{ github.workspace }}/_ci/mlflow.db
       VOLF_PRODUCTION_CONFIG: ${{ github.workspace }}/_ci/production.yaml
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
