@@ -56,7 +56,7 @@ jobs:
 
       - name: Restore persisted state (cache)
         id: state
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: .pages-state
           key: pages-state-${{ github.run_id }}
@@ -97,7 +97,7 @@ jobs:
         run: uv run python -m volforecast.flows.forecast
 
       - name: Save state (cache)
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: |
             .pages-state
